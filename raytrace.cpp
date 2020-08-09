@@ -2,6 +2,7 @@
 #include <fstream>
 #include <string>
 #include <memory>
+#include <vector>
 #include <stdlib.h>
 #include <chrono>
 #include <algorithm>
@@ -15,20 +16,102 @@ typedef unsigned char ubyte;
 #include <CL/cl.hpp>
 #endif
 
+#define float3(x, y, z) {{x, y, z}}
+
+std::size_t global_work_size;
+std::size_t local_work_size;
 cl::Program program;
 std::vector<cl::Device> devices;
 cl::Kernel kernel;
 cl::CommandQueue queue;
 cl_float4* cpu_output;
 cl::Buffer cl_output;
+cl::Buffer cl_spheres;
 cl::Context context;
-const int image_width = 1280;
-const int image_height = 720;
+int image_width;
+int image_height;
+int samples;
+
+// dummy variables are required for memory alignment
+// float3 is considered as float4 by OpenCL
+struct Sphere
+{
+	cl_float radius;
+	cl_float dummy1;   
+	cl_float dummy2;
+	cl_float dummy3;
+	cl_float3 position;
+	cl_float3 color;
+	cl_float3 emission;
+};
+void initScene(Sphere* cpu_spheres){
+
+	// left wall
+	cpu_spheres[0].radius	= 200.005f;
+	cpu_spheres[0].position = float3(-200.6f, 0.0f, 0.0f);
+	cpu_spheres[0].color    = float3(1.0f, 0.0f, 0.0f);
+	cpu_spheres[0].emission = float3(0.0f, 0.0f, 0.0f);
+
+	// right wall
+	cpu_spheres[1].radius	= 200.001f;
+	cpu_spheres[1].position = float3(200.6f, 0.0f, 0.0f);
+	cpu_spheres[1].color    = float3(0.0f, 1.0f, 0.0f);
+	cpu_spheres[1].emission = float3(0.0f, 0.0f, 0.0f);
+
+	// floor
+	cpu_spheres[2].radius	= 200.001f;
+	cpu_spheres[2].position = float3(0.0f, -200.4f, 0.0f);
+	cpu_spheres[2].color	= float3(1.0f, 1.0f, 1.0f);
+	cpu_spheres[2].emission = float3(0.0f, 0.0f, 0.0f);
+
+	// ceiling
+	cpu_spheres[3].radius	= 200.001f;
+	cpu_spheres[3].position = float3(0.0f, 200.4f, 0.0f);
+	cpu_spheres[3].color	= float3(0.9f, 0.8f, 0.7f);
+	cpu_spheres[3].emission = float3(0.0f, 0.0f, 0.0f);
+
+	// back wall
+	cpu_spheres[4].radius   = 200.001f;
+	cpu_spheres[4].position = float3(0.0f, 0.0f, -200.4f);
+	cpu_spheres[4].color    = float3(0.9f, 0.8f, 0.7f);
+	cpu_spheres[4].emission = float3(0.0f, 0.0f, 0.0f);
+
+	// front wall 
+	cpu_spheres[5].radius   = 200.0f;
+	cpu_spheres[5].position = float3(0.0f, 0.0f, 202.0f);
+	cpu_spheres[5].color    = float3(0.9f, 0.8f, 0.7f);
+	cpu_spheres[5].emission = float3(0.0f, 0.0f, 0.0f);
+
+	// left sphere
+	cpu_spheres[6].radius   = 0.16f;
+	cpu_spheres[6].position = float3(-0.25f, -0.24f, -0.1f);
+	cpu_spheres[6].color    = float3(1.0f, 0.2f, 0.2f);
+	cpu_spheres[6].emission = float3(0.0f, 0.0f, 0.0f);
+
+	// right sphere
+	cpu_spheres[7].radius   = 0.16f;
+	cpu_spheres[7].position = float3(0.25f, -0.24f, 0.1f);
+	cpu_spheres[7].color    = float3(0.0f, 0.0f, 0.7f);
+	cpu_spheres[7].emission = float3(0.0f, 0.0f, 0.0f);
+
+	// lightsource ceiling
+	cpu_spheres[8].radius   = 1.0f;
+	cpu_spheres[8].position = float3(0.0f, 1.36f, 0.0f);
+	cpu_spheres[8].color    = float3(0.0f, 0.0f, 0.0f);
+	cpu_spheres[8].emission = float3(10.0f, 10.0f, 10.0f);
+
+	// lightsource back wall
+	cpu_spheres[9].radius   = 0.05f;
+	cpu_spheres[9].position = float3(0.0f, 0.1f, 0.0f);
+	cpu_spheres[9].color    = float3(1.0f, 0.0f, 0.0f);
+	cpu_spheres[9].emission = float3(1.0f, 1.0f, 0.5f);
+	
+}
 
 
 int setOpenCL(const std::string &sourceName)
 {
-  int platform_id = 0, device_id = 0;
+  
 
   try
   {
@@ -40,10 +123,67 @@ int setOpenCL(const std::string &sourceName)
     // Get a list of devices on this platform
 
     // Select the platform.
+	int platform_id;
+	std::cout << "Platforms:" << std::endl;
+	for (int i = 0; i < platforms.size(); i ++){
+		std::cout <<std::to_string(i) << ") " <<platforms[i].getInfo<CL_PLATFORM_NAME>() << std::endl;
+	}
+	std::cout << std::endl;
+
+	
+	int correct_platform = 0;
+	std::cout << "Enter the number of the platform to use." << std::endl;
+	while(correct_platform == 0){
+
+	std::cin >> platform_id;
+	if(platform_id < platforms.size()){
+		correct_platform = 1;
+	}
+	else{
+	std::cout << "Number of platform doesn't exist. Please try again with a number from the list." << std::endl;
+	}
+	}
+	std::cout << std::endl;
+	//Select the device.
+	int device_id;
     platforms[platform_id].getDevices(CL_DEVICE_TYPE_GPU, &devices);
-    std::cout << "Platform:" << std::endl;
-    std::cout << platforms[platform_id].getInfo<CL_PLATFORM_NAME>() << std::endl
-              << std::endl;
+	std::cout << "Devices:" << std::endl;
+	for (int i = 0; i < devices.size(); i ++){
+		std::cout <<std::to_string(i) << ") " <<devices[i].getInfo<CL_DEVICE_NAME>() << std::endl;
+	}
+	std::cout << std::endl;
+
+	
+	int correct_device = 0;
+	std::cout << "Enter the number of the device to use." << std::endl;
+	while(correct_device == 0){
+
+	std::cin >> device_id;
+	if(device_id < devices.size()){
+		correct_device = 1;
+	}
+	else{
+	std::cout << "Number of device doesn't exist. Please try again with a number from the list." << std::endl;
+	}
+	}
+	std::cout << std::endl;
+	std::cout << "Enter width of image." << std::endl;
+	std::cin >> image_width;
+
+
+	//std::cout << std::endl;
+	std::cout << "Enter height of image." << std::endl;
+	std::cin >> image_height;
+
+	
+	std::cout << std::endl;
+	std::cout << "Enter number of samples for Path tracing." << std::endl;
+	std::cin >> samples;
+
+
+	std::cout << std::endl;
+	std::cout << "Platform:" << std::endl;
+	std::cout <<platforms[platform_id].getInfo<CL_PLATFORM_NAME>() << std::endl << std::endl;
 
     std::cout << "Device:" << std::endl;
 
@@ -72,6 +212,8 @@ int setOpenCL(const std::string &sourceName)
     
     cl::Kernel ray_kernel(program, "render_kernel");
     kernel = ray_kernel;
+    global_work_size = image_width * image_height;
+    local_work_size = kernel.getWorkGroupInfo<CL_KERNEL_WORK_GROUP_SIZE>(devices[device_id]);
     //lifegame.maxThreads = devices[device_id].getInfo<CL_DEVICE_MAX_WORK_GROUP_SIZE>();
     //std::cout << lifegame.maxThreads << std::endl;
   }
@@ -127,12 +269,31 @@ int main()
 {
 if (setOpenCL("Ray tracer.cl") == 0){
 cpu_output = new cl_float3[image_width * image_height];
+
+// initialise scene
+const int sphere_count = 10;
+Sphere cpu_spheres[sphere_count];
+initScene(cpu_spheres);
+
+// Create buffers on the OpenCL device for the image and the scene
 cl_output = cl::Buffer(context, CL_MEM_WRITE_ONLY, image_width * image_height * sizeof(cl_float3));
-kernel.setArg(0, cl_output);
+cl_spheres = cl::Buffer(context, CL_MEM_READ_ONLY, sphere_count * sizeof(Sphere));
+queue.enqueueWriteBuffer(cl_spheres, CL_TRUE, 0, sphere_count * sizeof(Sphere), cpu_spheres);
+
+// specify OpenCL kernel arguments
+kernel.setArg(0, cl_spheres);
 kernel.setArg(1, image_width);
 kernel.setArg(2, image_height);
-std::size_t global_work_size = image_width * image_height;
-std::size_t local_work_size = 64; 
+kernel.setArg(3, 9);//sphere_count
+kernel.setArg(4, samples);
+kernel.setArg(5, cl_output);
+
+std::cout << "Kernel work group size: " << local_work_size << std::endl;
+
+// Ensure the global work size is a multiple of local work size
+if (global_work_size % local_work_size != 0)
+  global_work_size = (global_work_size / local_work_size + 1) * local_work_size;
+
 queue.enqueueNDRangeKernel(kernel, cl::NullRange, global_work_size, local_work_size);
 queue.finish();
 queue.enqueueReadBuffer(cl_output, CL_TRUE, 0, image_width * image_height * sizeof(cl_float3), cpu_output);
