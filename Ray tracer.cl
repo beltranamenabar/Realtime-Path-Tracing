@@ -1,153 +1,97 @@
-__constant float EPSILON = 0.00003f; /* required to compensate for limited float precision */
-__constant float PI = 3.14159265359f;
+/*
+Copyright (c) 2009 David Bucciarelli (davibu@interfree.it)
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be included
+in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 #define GPU_KERNEL
 
+#include "camera.h"
+#include "geomfunc.h"
 
+static void GenerateCameraRay(OCL_CONSTANT_BUFFER Camera *camera,
+		unsigned int *seed0, unsigned int *seed1,
+		const int width, const int height, const int x, const int y, Ray *ray) {
+	const float invWidth = 1.f / width;
+	const float invHeight = 1.f / height;
+	const float r1 = get_random(seed0, seed1) - .5f;
+	const float r2 = get_random(seed0, seed1) - .5f;
+	const float kcx = (x + r1) * invWidth - .5f;
+	const float kcy = (y + r2) * invHeight - .5f;
 
+	Vec rdir;
+	vinit(rdir,
+			camera->x.x * kcx + camera->y.x * kcy + camera->dir.x,
+			camera->x.y * kcx + camera->y.y * kcy + camera->dir.y,
+			camera->x.z * kcx + camera->y.z * kcy + camera->dir.z);
 
-Ray createCamRay(const int x_coord, const int y_coord, const int width, const int height){
+	Vec rorig;
+	vsmul(rorig, 0.1f, rdir);
+	vadd(rorig, rorig, camera->orig)
 
-	float fx = (float)x_coord / (float)width;  /* convert int in range [0 - width] to float in range [0-1] */
-	float fy = (float)y_coord / (float)height; /* convert int in range [0 - height] to float in range [0-1] */
+	vnorm(rdir);
+	rinit(*ray, rorig, rdir);
+}
 
-	/* calculate aspect ratio */
-	float aspect_ratio = (float)(width) / (float)(height);
-	float fx2 = (fx - 0.5f) * aspect_ratio;
-	float fy2 = fy - 0.5f;
+__kernel void RadianceGPU(
+    __global Vec *colors, __global unsigned int *seedsInput,
+	OCL_CONSTANT_BUFFER Sphere *sphere, OCL_CONSTANT_BUFFER Camera *camera,
+	const unsigned int sphereCount,
+	const int width, const int height,
+	const int currentSample,
+	__global int *pixels) {
+    const int gid = get_global_id(0);
+	const int gid2 = 2 * gid;
+	const int x = gid % width;
+	const int y = gid / width;
 
-	/* determine position of pixel on screen */
-	float3 pixel_pos = (float3)(fx2, -fy2, 0.0f);
+	/* Check if we have to do something */
+	if (y >= height)
+		return;
 
-	/* create camera ray*/
+	/* LordCRC: move seed to local store */
+	unsigned int seed0 = seedsInput[gid2];
+	unsigned int seed1 = seedsInput[gid2 + 1];
+
 	Ray ray;
-	ray.origin = (float3)(0.0f, 0.1f, 2.0f); /* fixed camera position */
-	ray.dir = normalize(pixel_pos - ray.origin); /* vector from camera to pixel on screen */
+	GenerateCameraRay(camera, &seed0, &seed1, width, height, x, y, &ray);
 
-	return ray;
-}
-float intersect_sphere(const Sphere* sphere, const Ray* ray) /* version using local copy of sphere */
-{
-	float3 rayToCenter = sphere->pos - ray->origin;
-	float b = dot(rayToCenter, ray->dir);
-	float c = dot(rayToCenter, rayToCenter) - sphere->radius*sphere->radius;
-	float disc = b * b - c;
+	Vec r;
+	RadiancePathTracing(sphere, sphereCount, &ray, &seed0, &seed1, &r);
 
-	if (disc < 0.0f) return 0.0f;
-	else disc = sqrt(disc);
-
-	if ((b - disc) > EPSILON) return b - disc;
-	if ((b + disc) > EPSILON) return b + disc;
-
-	return 0.0f;
-}
-bool intersect_scene(__constant Sphere* spheres, const Ray* ray, float* t, int* sphere_id, const int sphere_count)
-{
-	/* initialise t to a very large number, 
-	so t will be guaranteed to be smaller
-	when a hit with the scene occurs */
-
-	float inf = 1e20f;
-	*t = inf;
-
-	/* check if the ray intersects each sphere in the scene */
-	for (int i = 0; i < sphere_count; i++)  {
-		
-		Sphere sphere = spheres[i]; /* create local copy of sphere */
-		
-		/* float hitdistance = intersect_sphere(&spheres[i], ray); */
-		float hitdistance = intersect_sphere(&sphere, ray);
-		/* keep track of the closest intersection and hitobject found so far */
-		if (hitdistance != 0.0f && hitdistance < *t) {
-			*t = hitdistance;
-			*sphere_id = i;
-		}
-	}
-	return *t < inf; /* true when ray interesects the scene */
-}
-
-
-/* the path tracing function */
-/* computes a path (starting from the camera) with a defined number of bounces, accumulates light/color at each bounce */
-/* each ray hitting a surface will be reflected in a random direction (by randomly sampling the hemisphere above the hitpoint) */
-/* small optimisation: diffuse ray directions are calculated using cosine weighted importance sampling */
-
-float3 trace(__constant Sphere* spheres, const Ray* camray, const int sphere_count, const int* seed0, const int* seed1){
-
-	Ray ray = *camray;
-
-	float3 accum_color = (float3)(0.0f, 0.0f, 0.0f);
-	float3 mask = (float3)(1.0f, 1.0f, 1.0f);
-
-	for (int bounces = 0; bounces < 8; bounces++){
-
-		float t;   /* distance to intersection */
-		int hitsphere_id = 0; /* index of intersected sphere */
-
-		/* if ray misses scene, return background colour */
-		if (!intersect_scene(spheres, &ray, &t, &hitsphere_id, sphere_count))
-			return accum_color += mask * (float3)(0.15f, 0.15f, 0.25f);
-
-		/* else, we've got a hit! Fetch the closest hit sphere */
-		Sphere hitsphere = spheres[hitsphere_id]; /* version with local copy of sphere */
-
-		/* compute the hitpoint using the ray equation */
-		float3 hitpoint = ray.origin + ray.dir * t;
-		
-		/* compute the surface normal and flip it if necessary to face the incoming ray */
-		float3 normal = normalize(hitpoint - hitsphere.pos); 
-		float3 normal_facing = dot(normal, ray.dir) < 0.0f ? normal : normal * (-1.0f);
-
-		/* compute two random numbers to pick a random point on the hemisphere above the hitpoint*/
-		float rand1 = 2.0f * PI * get_random(seed0, seed1);
-		float rand2 = get_random(seed0, seed1);
-		float rand2s = sqrt(rand2);
-
-		/* create a local orthogonal coordinate frame centered at the hitpoint */
-		float3 w = normal_facing;
-		float3 axis = fabs(w.x) > 0.1f ? (float3)(0.0f, 1.0f, 0.0f) : (float3)(1.0f, 0.0f, 0.0f);
-		float3 u = normalize(cross(axis, w));
-		float3 v = cross(w, u);
-
-		/* use the coordinte frame and random numbers to compute the next ray direction */
-		float3 newdir = normalize(u * cos(rand1)*rand2s + v*sin(rand1)*rand2s + w*sqrt(1.0f - rand2));
-
-		/* add a very small offset to the hitpoint to prevent self intersection */
-		ray.origin = hitpoint + normal_facing * EPSILON;
-		ray.dir = newdir;
-
-		/* add the colour and light contributions to the accumulated colour */
-		accum_color += mask * hitsphere.emission; 
-
-		/* the mask colour picks up surface colours at each bounce */
-		mask *= hitsphere.color; 
-		
-		/* perform cosine-weighted importance sampling for diffuse surfaces*/
-		mask *= dot(newdir, normal_facing); 
+	const int i = (height - y - 1) * width + x;
+	if (currentSample == 0) {
+		// Jens's patch for MacOS
+		vassign(colors[i], r);
+	} else {
+		const float k1 = currentSample;
+		const float k2 = 1.f / (currentSample + 1.f);
+		colors[i].x = (colors[i].x * k1  + r.x) * k2;
+		colors[i].y = (colors[i].y * k1  + r.y) * k2;
+		colors[i].z = (colors[i].z * k1  + r.z) * k2;
 	}
 
-	return accum_color;
-}
+	pixels[y * width + x] = toInt(colors[i].x) |
+			(toInt(colors[i].y) << 8) |
+			(toInt(colors[i].z) << 16);
 
-__kernel void render_kernel(__constant Sphere* spheres, const int width, const int height, const int sphere_count,const int samples, __global float3* output)
-{
-	unsigned int work_item_id = get_global_id(0);	/* the unique global id of the work item for the current pixel */
-	unsigned int x_coord = work_item_id % width;			/* x-coordinate of the pixel */
-	unsigned int y_coord = work_item_id / width;			/* y-coordinate of the pixel */
-	
-	/* seeds for random number generator */
-	unsigned int seed0 = x_coord;
-	unsigned int seed1 = y_coord;
-
-	Ray camray = createCamRay(x_coord, y_coord, width, height);
-
-	/* add the light contribution of each sample and average over all samples*/
-	float3 finalcolor = (float3)(0.0f, 0.0f, 0.0f);
-	float invSamples = 1.0f / samples;
-
-	for (int i = 0; i < samples; i++)
-		finalcolor += trace(spheres, &camray, sphere_count, &seed0, &seed1) * invSamples;
-
-	/* store the pixelcolour in the output buffer */
-	output[work_item_id] = finalcolor;
+	seedsInput[gid2] = seed0;
+	seedsInput[gid2 + 1] = seed1;
 }

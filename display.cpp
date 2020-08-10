@@ -27,7 +27,7 @@ double WallClockTime() {
 #endif
 }
 
-void UpdateCamera(Camera camera,int width, int height) {
+void UpdateCamera() {
 	vsub(camera.dir, camera.target, camera.orig);
 	vnorm(camera.dir);
 
@@ -35,7 +35,7 @@ void UpdateCamera(Camera camera,int width, int height) {
 	const float fov = (M_PI / 180.f) * 45.f;
 	vxcross(camera.x, camera.dir, up);
 	vnorm(camera.x);
-	vsmul(camera.x, width * fov / height, camera.x);
+	vsmul(camera.x, image_width * fov / image_height, camera.x);
 
 	vxcross(camera.y, camera.x, camera.dir);
 	vnorm(camera.y);
@@ -73,7 +73,7 @@ void idleFunc(void) {
 	glutPostRedisplay();
 }
 
-void ReadScene(char *fileName,Sphere* spheres,unsigned int sphereCount,Camera camera) {
+void ReadScene(char *fileName) {
 	//fprintf(stderr, "Reading scene: %s\n", fileName);
 	std::cerr << "Reading scene: "  << fileName << std::endl;
 	FILE *f = fopen(fileName, "r");
@@ -94,18 +94,19 @@ void ReadScene(char *fileName,Sphere* spheres,unsigned int sphereCount,Camera ca
 	}
 
 	/* Read the sphere count */
-	c = fscanf(f,"size %u\n", &sphereCount);
+	c = fscanf(f,"size %u\n", &sphere_count);
+	//std::cout << "Number of spheres: " << std::to_string(sphere_count)<<std::endl;
 	if (c != 1) {
 		//fprintf(stderr, "Failed to read sphere count: %d\n", c);
 		std::cerr << "Failed to read sphere count: "  << std::to_string(c) << std::endl;
 		exit(-1);
 	}
 	//fprintf(stderr, "Scene size: %d\n", sphereCount);
-	std::cerr << "Scene size: "  << std::to_string(sphereCount) << std::endl;
+	//std::cerr << "Scene size: "  << std::to_string(sphere_count) << std::endl;
 	/* Read all spheres */
-	spheres = (Sphere *)malloc(sizeof(Sphere) * sphereCount);
+	spheres = (Sphere *)malloc(sizeof(Sphere) * sphere_count);
 	unsigned int i;
-	for (i = 0; i < sphereCount; i++) {
+	for (i = 0; i < sphere_count; i++) {
 		Sphere *s = &spheres[i];
 		int mat;
 		int c = fscanf(f,"sphere %f  %f %f %f  %f %f %f  %f %f %f  %d\n",

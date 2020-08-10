@@ -1,6 +1,4 @@
 
-
-#include <math.h>
 #include "vec.h"
 #define EPSILON 0.00003f
 #define FLOAT_PI 3.14159265358979323846f 

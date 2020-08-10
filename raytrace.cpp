@@ -119,7 +119,56 @@ void initScene(Sphere* cpu_spheres){
 	
 }
 */
+static void AllocateBuffers() {
+	try
+  {
+	const int pixelCount = image_width * image_height;
+	int i;
+	colors = (Vec *)malloc(sizeof(Vec) * pixelCount);
 
+	seeds = (unsigned int *)malloc(sizeof(unsigned int) * pixelCount * 2);
+	for (i = 0; i < pixelCount * 2; i++) {
+		seeds[i] = rand();
+		if (seeds[i] < 2)
+			seeds[i] = 2;
+	}
+
+	pixels = (unsigned int *)malloc(sizeof(unsigned int) * pixelCount);
+	// Test colors
+	for(i = 0; i < pixelCount; ++i)
+		pixels[i] = i;
+
+	cl_uint sizeBytes = sizeof(Vec) * image_width * image_height;
+	colorBuffer = cl::Buffer(context, CL_MEM_READ_WRITE,sizeBytes);
+
+	sizeBytes = sizeof(unsigned int) * image_width * image_height;
+	pixelBuffer = cl::Buffer(context, CL_MEM_WRITE_ONLY,sizeBytes);
+   
+
+	sizeBytes = sizeof(unsigned int) * image_width * image_height * 2;
+	seedBuffer = cl::Buffer(context, CL_MEM_READ_WRITE,sizeBytes);
+	queue.enqueueWriteBuffer(seedBuffer,CL_TRUE,0,sizeBytes,seeds);
+  }
+   catch (cl::Error err)
+  {
+    std::cout << "Error: " << err.what() << "(" << err.err() << ")" << std::endl;
+    for (cl::Device dev : devices)
+    {
+      // Check the build status
+      cl_build_status status = program.getBuildInfo<CL_PROGRAM_BUILD_STATUS>(dev);
+      if (status != CL_BUILD_ERROR)
+        continue;
+
+      // Get the build log
+      std::string name = dev.getInfo<CL_DEVICE_NAME>();
+      std::string buildlog = program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(dev);
+      std::cerr << "Build log for " << name << ":" << std::endl
+                << buildlog << std::endl;
+    }
+
+    return;
+  }
+}
 int setOpenCL(const std::string &sourceName)
 {
   
@@ -201,12 +250,12 @@ int setOpenCL(const std::string &sourceName)
 	std::cout << "Enter height of image." << std::endl;
 	std::cin >> image_height;
 
-	
+	/*
 	std::cout << std::endl;
 	std::cout << "Enter number of samples for Path tracing." << std::endl;
 	std::cin >> samples;
 
-
+*/
 	std::cout << std::endl;
 	std::cout << "Platform:" << std::endl;
 	std::cout <<platforms[platform_id].getInfo<CL_PLATFORM_NAME>() << std::endl << std::endl;
@@ -218,11 +267,37 @@ int setOpenCL(const std::string &sourceName)
     // Create a context
     cl::Context contextray(devices);
     context = contextray;
+	//std::cout << "Context created" << std::endl;
     // Create a command queue
-    // Select the device.
     queue = cl::CommandQueue(context, devices[device_id]);
-
-    // Read the program source
+	//std::cout << "Command queue created:" << std::endl;
+	//std::cout << "Number of spheres:" <<std::to_string(sphere_count) << std::endl;
+	//std::cout << "Size of Sphere:" <<std::to_string(sizeof(Sphere)) << std::endl;
+	sphereBuffer = cl::Buffer(context, 
+#ifdef __APPLE__
+            CL_MEM_READ_WRITE, // NOTE: not READ_ONLY because of Apple's OpenCL bug
+#else
+			CL_MEM_READ_ONLY,
+#endif
+	sizeof(Sphere)*sphere_count);
+	//std::cout << "Sphere buffer created:" << std::endl;
+	queue.enqueueWriteBuffer(sphereBuffer,CL_TRUE,0,sizeof(Sphere)*sphere_count,spheres);
+    //std::cout << "Enqueued write buffer spheres" << std::endl;
+	
+		cameraBuffer = cl::Buffer(context, 
+#ifdef __APPLE__
+            CL_MEM_READ_WRITE, // NOTE: not READ_ONLY because of Apple's OpenCL bug
+#else
+			CL_MEM_READ_ONLY,
+#endif
+	sizeof(Camera));
+	//std::cout << "Camera buffer created:" << std::endl;
+	queue.enqueueWriteBuffer(cameraBuffer,CL_TRUE,0,sizeof(Camera),&camera);
+	//std::cout << "Enqueued write buffer camera" << std::endl;
+	//AllocateBuffers();
+	std::cout << "AllocateBuffers() done" << std::endl;
+	
+	// Read the program source
     std::ifstream sourceFile(sourceName);
     std::string sourceCode(std::istreambuf_iterator<char>(sourceFile), (std::istreambuf_iterator<char>()));
     cl::Program::Sources source(1, std::make_pair(sourceCode.c_str(), sourceCode.length()));
@@ -231,11 +306,16 @@ int setOpenCL(const std::string &sourceName)
     program = cl::Program(context, source);
 
     // Build the program for the devices
-    program.build(devices);
+	#ifdef __APPLE__
+	program.build(devices,"-I. -D__APPLE__");
+	#else
+	program.build(devices,"-I.");
+	#endif
+    
 
     // Make kernel
     
-    cl::Kernel ray_kernel(program, "render_kernel");
+    cl::Kernel ray_kernel(program, "RadianceGPU");
     kernel = ray_kernel;
     global_work_size = image_width * image_height;
     local_work_size = kernel.getWorkGroupInfo<CL_KERNEL_WORK_GROUP_SIZE>(devices[device_id]);
@@ -281,41 +361,10 @@ void saveImage(){
 		toInt(cpu_output[i].s[2]));
 }
 
-static void AllocateBuffers() {
-	const int pixelCount = image_width * image_height;
-	int i;
-	colors = (Vec *)malloc(sizeof(Vec) * pixelCount);
 
-	seeds = (unsigned int *)malloc(sizeof(unsigned int) * pixelCount * 2);
-	for (i = 0; i < pixelCount * 2; i++) {
-		seeds[i] = rand();
-		if (seeds[i] < 2)
-			seeds[i] = 2;
-	}
-
-	pixels = (unsigned int *)malloc(sizeof(unsigned int) * pixelCount);
-	// Test colors
-	for(i = 0; i < pixelCount; ++i)
-		pixels[i] = i;
-
-	cl_int status;
-	cl_uint sizeBytes = sizeof(Vec) * image_width * image_height;
-	colorBuffer = cl::Buffer(context, CL_MEM_READ_WRITE,sizeBytes);
-
-	sizeBytes = sizeof(unsigned int) * image_width * image_height;
-	pixelBuffer = cl::Buffer(context, CL_MEM_WRITE_ONLY,sizeBytes);
-   
-
-	sizeBytes = sizeof(unsigned int) * image_width * image_height * 2;
-	seedBuffer = cl::Buffer(context, CL_MEM_READ_WRITE,sizeBytes);
-	queue.enqueueWriteBuffer(seedBuffer,CL_TRUE,0,sizeBytes,seeds);
-}
 
 static void FreeBuffers() {
 
-	delete &colorBuffer;
-	delete &pixelBuffer;
-	delete &seedBuffer;
 	free(seeds);
 	free(colors);
 	free(pixels);
@@ -336,10 +385,10 @@ void ReInit(const int reallocBuffers) {
 	// Check if I have to reallocate buffers
 	if (reallocBuffers) {
 		FreeBuffers();
-		UpdateCamera(camera,image_width,image_height);
+		UpdateCamera();
 		AllocateBuffers();
 	} else
-		UpdateCamera(camera,image_width,image_height);
+		UpdateCamera();
 	cl_int status = queue.enqueueWriteBuffer(cameraBuffer, CL_TRUE, 0, sizeof(Camera), &camera);
 	if (status != CL_SUCCESS) {
 		//fprintf(stderr, "Failed to write the OpenCL camera buffer: %d\n", status);
@@ -352,9 +401,7 @@ void ReInit(const int reallocBuffers) {
 static void ExecuteKernel() {
 	/* Enqueue a kernel run call */
 
-std::cout << "Kernel work group size: " << local_work_size << std::endl;
-if (global_work_size % local_work_size != 0)
-  global_work_size = (global_work_size / local_work_size + 1) * local_work_size;
+
 
 queue.enqueueNDRangeKernel(kernel, cl::NullRange, global_work_size, local_work_size);
 }
@@ -363,15 +410,25 @@ void UpdateRendering() {
 	int startSampleCount = currentSample;
 
 	/* Set kernel arguments */
+	
 	kernel.setArg(0, colorBuffer);
+	//std::cout << "arg 0 set" << std::endl;
 	kernel.setArg(1, seedBuffer);
+	//std::cout << "arg 1 set" << std::endl;
 	kernel.setArg(2, sphereBuffer);
+	//std::cout << "arg 2 set" << std::endl;
 	kernel.setArg(3, cameraBuffer);
-	kernel.setArg(4, image_width);
-	kernel.setArg(5, image_height);	
-	kernel.setArg(6, currentSample);	
-	kernel.setArg(7, pixelBuffer);	
-
+	//std::cout << "arg 3 set" << std::endl;
+	kernel.setArg(4, sphere_count);
+	//std::cout << "arg 4 set" << std::endl;
+	kernel.setArg(5, image_width);
+	//std::cout << "arg 5 set" << std::endl;
+	kernel.setArg(6, image_height);
+	//std::cout << "arg 6 set" << std::endl;
+	kernel.setArg(7, currentSample);
+	//std::cout << "arg 7 set" << std::endl;
+	kernel.setArg(8, pixelBuffer);	
+	//std::cout << "arg 8 set" << std::endl;
 
 	//--------------------------------------------------------------------------
 
@@ -396,7 +453,7 @@ void UpdateRendering() {
 	//--------------------------------------------------------------------------
 
 	/* Enqueue readBuffer */
-	cl_int status = queue.enqueueWriteBuffer(pixelBuffer, CL_TRUE, 0, image_width * image_height * sizeof(unsigned int), pixels);
+	cl_int status = queue.enqueueReadBuffer(pixelBuffer, CL_TRUE, 0, image_width * image_height * sizeof(unsigned int), pixels);
 	if (status != CL_SUCCESS) {
 		//fprintf(stderr, "Failed to read the OpenCL pixel buffer: %d\n", status);
 		std::cerr << "Failed to read the OpenCL pixel buffer:"  << std::to_string(status) <<std::endl;
@@ -418,11 +475,17 @@ void UpdateRendering() {
 
 int main(int argc, char *argv[])
 {
-ReadScene("Scenes/cornell.scn",spheres,sphere_count,camera);
-UpdateCamera(camera,image_width,image_height);
+ReadScene("Scenes/cornell.scn");
+//std::cout << "Scene read" << std::endl;
+UpdateCamera();
+//std::cout << "Updated Camera" << std::endl;
 if (setOpenCL("Ray tracer.cl") == 0){
+	std::cout << "Kernel work group size: " << local_work_size << std::endl;
+if (global_work_size % local_work_size != 0)
+  global_work_size = (global_work_size / local_work_size + 1) * local_work_size;
 
 	InitGlut(argc, argv, "Test");
+	std::cout << "Glut init" << std::endl;
 	glutMainLoop();
 
 saveImage();

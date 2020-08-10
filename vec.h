@@ -22,6 +22,10 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
 #pragma once
+#ifndef GPU_KERNEL 
+#include <math.h>
+#endif
+
 typedef struct {
 	float x, y, z; // position, also color (r,g,b)
 } Vec;

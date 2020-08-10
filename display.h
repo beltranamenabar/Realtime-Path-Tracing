@@ -25,12 +25,14 @@
 extern int image_width;
 extern int image_height;
 extern unsigned int *pixels;
+extern unsigned int sphere_count;
+extern Camera camera;
+extern Sphere *spheres;
 
 void InitGlut(int argc, char *argv[], char *windowTittle);
 void ReadScene(char *fileName);
 double WallClockTime();
-void ReadScene(char *fileName,Sphere* spheres,unsigned int sphereCount,Camera camera);
-void UpdateCamera(Camera camera,int width, int height);
+void UpdateCamera();
 void ReInit(const int reallocBuffers);
 void idleFunc(void);
 void UpdateRendering();
