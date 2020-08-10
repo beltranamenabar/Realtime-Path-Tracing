@@ -1,9 +1,36 @@
 __constant float EPSILON = 0.00003f; /* required to compensate for limited float precision */
 __constant float PI = 3.14159265359f;
 
-#define GPU_KERNEL
+typedef struct Ray{
+	float3 origin;
+	float3 dir;
+} Ray;
+
+typedef struct Sphere{
+	float radius;
+	float3 pos;
+	float3 color;
+	float3 emission;
+} Sphere;
 
 
+static float get_random(unsigned int *seed0, unsigned int *seed1) {
+
+	/* hash the seeds using bitwise AND operations and bitshifts */
+	*seed0 = 36969 * ((*seed0) & 65535) + ((*seed0) >> 16);  
+	*seed1 = 18000 * ((*seed1) & 65535) + ((*seed1) >> 16);
+
+	unsigned int ires = ((*seed0) << 16) + (*seed1);
+
+	/* use union struct to convert int to float */
+	union {
+		float f;
+		unsigned int ui;
+	} res;
+
+	res.ui = (ires & 0x007fffff) | 0x40000000;  /* bitwise AND, bitwise OR */
+	return (res.f - 2.0f) / 2.0f;
+}
 
 
 Ray createCamRay(const int x_coord, const int y_coord, const int width, const int height){

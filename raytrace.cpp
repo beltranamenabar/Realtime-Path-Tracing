@@ -6,6 +6,9 @@
 #include <stdlib.h>
 #include <chrono>
 #include <algorithm>
+#include "camera.h"
+
+
 
 typedef unsigned char ubyte;
 
@@ -32,6 +35,30 @@ int image_width;
 int image_height;
 int samples;
 
+static cl::Buffer colorBuffer;
+static cl::Buffer pixelBuffer;
+static cl::Buffer seedBuffer;
+
+Sphere *spheres;
+static Vec *colors;
+static unsigned int *seeds;
+Camera camera;
+static int currentSample = 0;
+unsigned int sphereCount;
+double WallClockTime() {
+#if defined(__linux__) || defined(__APPLE__)
+	struct timeval t;
+	gettimeofday(&t, NULL);
+
+	return t.tv_sec + t.tv_usec / 1000000.0;
+#elif defined (WIN32)
+	return GetTickCount() / 1000.0;
+#else
+	Unsupported Platform !!!
+#endif
+}
+
+
 // dummy variables are required for memory alignment
 // float3 is considered as float4 by OpenCL
 struct Sphere
@@ -55,7 +82,7 @@ void initScene(Sphere* cpu_spheres){
 	// right wall
 	cpu_spheres[1].radius	= 200.001f;
 	cpu_spheres[1].position = float3(200.6f, 0.0f, 0.0f);
-	cpu_spheres[1].color    = float3(0.0f, 1.0f, 0.0f);
+	cpu_spheres[1].color    = float3(1.0f, 1.0f, 1.0f);
 	cpu_spheres[1].emission = float3(0.0f, 0.0f, 0.0f);
 
 	// floor
@@ -84,8 +111,8 @@ void initScene(Sphere* cpu_spheres){
 
 	// left sphere
 	cpu_spheres[6].radius   = 0.16f;
-	cpu_spheres[6].position = float3(-0.25f, -0.24f, -0.1f);
-	cpu_spheres[6].color    = float3(1.0f, 0.2f, 0.2f);
+	cpu_spheres[6].position = float3(-0.4f, -0.24f, -0.1f);
+	cpu_spheres[6].color    = float3(1.0f, 1.0f, 1.0f);
 	cpu_spheres[6].emission = float3(0.0f, 0.0f, 0.0f);
 
 	// right sphere
@@ -98,13 +125,13 @@ void initScene(Sphere* cpu_spheres){
 	cpu_spheres[8].radius   = 1.0f;
 	cpu_spheres[8].position = float3(0.0f, 1.36f, 0.0f);
 	cpu_spheres[8].color    = float3(0.0f, 0.0f, 0.0f);
-	cpu_spheres[8].emission = float3(10.0f, 10.0f, 10.0f);
+	cpu_spheres[8].emission = float3(5.0f, 5.0f, 5.0f);
 
 	// lightsource back wall
-	cpu_spheres[9].radius   = 0.05f;
-	cpu_spheres[9].position = float3(0.0f, 0.1f, 0.0f);
-	cpu_spheres[9].color    = float3(1.0f, 0.0f, 0.0f);
-	cpu_spheres[9].emission = float3(1.0f, 1.0f, 0.5f);
+	cpu_spheres[9].radius   = 0.1f;
+	cpu_spheres[9].position = float3(0.25f, 0.1f, 0.0f);
+	cpu_spheres[9].color    = float3(0.5f, 2.0f, 0.5f);
+	cpu_spheres[9].emission = float3(0.5f, 2.0f, 0.5f);
 	
 }
 
@@ -124,6 +151,8 @@ int setOpenCL(const std::string &sourceName)
 
     // Select the platform.
 	int platform_id;
+	if(platforms.size()>1){
+		
 	std::cout << "Platforms:" << std::endl;
 	for (int i = 0; i < platforms.size(); i ++){
 		std::cout <<std::to_string(i) << ") " <<platforms[i].getInfo<CL_PLATFORM_NAME>() << std::endl;
@@ -144,9 +173,17 @@ int setOpenCL(const std::string &sourceName)
 	}
 	}
 	std::cout << std::endl;
+
+	}
+	else{
+		platform_id = 0;
+
+	}
+	
 	//Select the device.
 	int device_id;
-    platforms[platform_id].getDevices(CL_DEVICE_TYPE_GPU, &devices);
+	platforms[platform_id].getDevices(CL_DEVICE_TYPE_ALL, &devices);
+	if(devices.size() > 1){
 	std::cout << "Devices:" << std::endl;
 	for (int i = 0; i < devices.size(); i ++){
 		std::cout <<std::to_string(i) << ") " <<devices[i].getInfo<CL_DEVICE_NAME>() << std::endl;
@@ -166,6 +203,11 @@ int setOpenCL(const std::string &sourceName)
 	std::cout << "Number of device doesn't exist. Please try again with a number from the list." << std::endl;
 	}
 	}
+	}
+	else{
+		device_id = 0;
+	}
+    
 	std::cout << std::endl;
 	std::cout << "Enter width of image." << std::endl;
 	std::cin >> image_width;
@@ -186,7 +228,6 @@ int setOpenCL(const std::string &sourceName)
 	std::cout <<platforms[platform_id].getInfo<CL_PLATFORM_NAME>() << std::endl << std::endl;
 
     std::cout << "Device:" << std::endl;
-
     std::cout << devices[device_id].getInfo<CL_DEVICE_NAME>() << std::endl
               << std::endl;
 
@@ -239,11 +280,13 @@ int setOpenCL(const std::string &sourceName)
 
   return (EXIT_SUCCESS);
 }
+void display(void) {
+	glClear(GL_COLOR_BUFFER_BIT);
+	glRasterPos2i(0, 0);
+	glDrawPixels(width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+	glutSwapBuffers();
+}
 
-inline float clamp(float x){ return x < 0.0f ? 0.0f : x > 1.0f ? 1.0f : x; }
-
-// convert RGB float in range [0,1] to int in range [0, 255]
-inline int toInt(float x){ return int(clamp(x) * 255 + .5); }
 
 void saveImage(){
 
@@ -267,6 +310,8 @@ void cleanUp(){
 
 int main()
 {
+ReadScene("Scenes/cornell.scn",spheres,sphereCount,camera);
+UpdateCamera(camera);
 if (setOpenCL("Ray tracer.cl") == 0){
 cpu_output = new cl_float3[image_width * image_height];
 
@@ -284,7 +329,7 @@ queue.enqueueWriteBuffer(cl_spheres, CL_TRUE, 0, sphere_count * sizeof(Sphere), 
 kernel.setArg(0, cl_spheres);
 kernel.setArg(1, image_width);
 kernel.setArg(2, image_height);
-kernel.setArg(3, 9);//sphere_count
+kernel.setArg(3, 10);//sphere_count
 kernel.setArg(4, samples);
 kernel.setArg(5, cl_output);
 
