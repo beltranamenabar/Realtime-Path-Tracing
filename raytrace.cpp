@@ -1,4 +1,3 @@
-#include <iostream>
 #include <fstream>
 #include <string>
 #include <memory>
@@ -6,10 +5,9 @@
 #include <stdlib.h>
 #include <chrono>
 #include <algorithm>
-#include "camera.h"
+#include <iostream>
 
-
-
+#include "display.h"
 typedef unsigned char ubyte;
 
 #define __CL_ENABLE_EXCEPTIONS
@@ -23,54 +21,40 @@ typedef unsigned char ubyte;
 
 std::size_t global_work_size;
 std::size_t local_work_size;
-cl::Program program;
+
 std::vector<cl::Device> devices;
-cl::Kernel kernel;
-cl::CommandQueue queue;
+
+
 cl_float4* cpu_output;
 cl::Buffer cl_output;
 cl::Buffer cl_spheres;
-cl::Context context;
+
 int image_width;
 int image_height;
 int samples;
 
+cl::Context context;
 static cl::Buffer colorBuffer;
 static cl::Buffer pixelBuffer;
 static cl::Buffer seedBuffer;
+static cl::Buffer sphereBuffer;
+static cl::Buffer cameraBuffer;
+cl::CommandQueue queue;
+cl::Program program;
+cl::Kernel kernel;
 
-Sphere *spheres;
 static Vec *colors;
-static unsigned int *seeds;
 Camera camera;
+static unsigned int *seeds;
+Sphere *spheres;
 static int currentSample = 0;
-unsigned int sphereCount;
-double WallClockTime() {
-#if defined(__linux__) || defined(__APPLE__)
-	struct timeval t;
-	gettimeofday(&t, NULL);
-
-	return t.tv_sec + t.tv_usec / 1000000.0;
-#elif defined (WIN32)
-	return GetTickCount() / 1000.0;
-#else
-	Unsupported Platform !!!
-#endif
-}
+unsigned int sphere_count;
+unsigned int *pixels;
 
 
 // dummy variables are required for memory alignment
 // float3 is considered as float4 by OpenCL
-struct Sphere
-{
-	cl_float radius;
-	cl_float dummy1;   
-	cl_float dummy2;
-	cl_float dummy3;
-	cl_float3 position;
-	cl_float3 color;
-	cl_float3 emission;
-};
+/*
 void initScene(Sphere* cpu_spheres){
 
 	// left wall
@@ -134,7 +118,7 @@ void initScene(Sphere* cpu_spheres){
 	cpu_spheres[9].emission = float3(0.5f, 2.0f, 0.5f);
 	
 }
-
+*/
 
 int setOpenCL(const std::string &sourceName)
 {
@@ -154,7 +138,7 @@ int setOpenCL(const std::string &sourceName)
 	if(platforms.size()>1){
 		
 	std::cout << "Platforms:" << std::endl;
-	for (int i = 0; i < platforms.size(); i ++){
+	for (unsigned int i = 0; i < platforms.size(); i ++){
 		std::cout <<std::to_string(i) << ") " <<platforms[i].getInfo<CL_PLATFORM_NAME>() << std::endl;
 	}
 	std::cout << std::endl;
@@ -185,7 +169,7 @@ int setOpenCL(const std::string &sourceName)
 	platforms[platform_id].getDevices(CL_DEVICE_TYPE_ALL, &devices);
 	if(devices.size() > 1){
 	std::cout << "Devices:" << std::endl;
-	for (int i = 0; i < devices.size(); i ++){
+	for (unsigned int i = 0; i < devices.size(); i ++){
 		std::cout <<std::to_string(i) << ") " <<devices[i].getInfo<CL_DEVICE_NAME>() << std::endl;
 	}
 	std::cout << std::endl;
@@ -280,12 +264,6 @@ int setOpenCL(const std::string &sourceName)
 
   return (EXIT_SUCCESS);
 }
-void display(void) {
-	glClear(GL_COLOR_BUFFER_BIT);
-	glRasterPos2i(0, 0);
-	glDrawPixels(width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
-	glutSwapBuffers();
-}
 
 
 void saveImage(){
@@ -303,50 +281,153 @@ void saveImage(){
 		toInt(cpu_output[i].s[2]));
 }
 
-void cleanUp(){
-	delete cpu_output;
+static void AllocateBuffers() {
+	const int pixelCount = image_width * image_height;
+	int i;
+	colors = (Vec *)malloc(sizeof(Vec) * pixelCount);
+
+	seeds = (unsigned int *)malloc(sizeof(unsigned int) * pixelCount * 2);
+	for (i = 0; i < pixelCount * 2; i++) {
+		seeds[i] = rand();
+		if (seeds[i] < 2)
+			seeds[i] = 2;
+	}
+
+	pixels = (unsigned int *)malloc(sizeof(unsigned int) * pixelCount);
+	// Test colors
+	for(i = 0; i < pixelCount; ++i)
+		pixels[i] = i;
+
+	cl_int status;
+	cl_uint sizeBytes = sizeof(Vec) * image_width * image_height;
+	colorBuffer = cl::Buffer(context, CL_MEM_READ_WRITE,sizeBytes);
+
+	sizeBytes = sizeof(unsigned int) * image_width * image_height;
+	pixelBuffer = cl::Buffer(context, CL_MEM_WRITE_ONLY,sizeBytes);
+   
+
+	sizeBytes = sizeof(unsigned int) * image_width * image_height * 2;
+	seedBuffer = cl::Buffer(context, CL_MEM_READ_WRITE,sizeBytes);
+	queue.enqueueWriteBuffer(seedBuffer,CL_TRUE,0,sizeBytes,seeds);
 }
 
+static void FreeBuffers() {
 
-int main()
-{
-ReadScene("Scenes/cornell.scn",spheres,sphereCount,camera);
-UpdateCamera(camera);
-if (setOpenCL("Ray tracer.cl") == 0){
-cpu_output = new cl_float3[image_width * image_height];
+	delete &colorBuffer;
+	delete &pixelBuffer;
+	delete &seedBuffer;
+	free(seeds);
+	free(colors);
+	free(pixels);
+}
 
-// initialise scene
-const int sphere_count = 10;
-Sphere cpu_spheres[sphere_count];
-initScene(cpu_spheres);
+void ReInitScene() {
+	currentSample = 0;
 
-// Create buffers on the OpenCL device for the image and the scene
-cl_output = cl::Buffer(context, CL_MEM_WRITE_ONLY, image_width * image_height * sizeof(cl_float3));
-cl_spheres = cl::Buffer(context, CL_MEM_READ_ONLY, sphere_count * sizeof(Sphere));
-queue.enqueueWriteBuffer(cl_spheres, CL_TRUE, 0, sphere_count * sizeof(Sphere), cpu_spheres);
+	// Redownload the scene
+	cl_int status = queue.enqueueWriteBuffer(sphereBuffer, CL_TRUE, 0, sizeof(Sphere)*sphere_count, spheres);
+	if (status != CL_SUCCESS) {
+		//fprintf(stderr, "Failed to write the OpenCL scene buffer: %d\n", status);
+		std::cerr << "Failed to write the OpenCL scene buffer: "  << std::to_string(status) <<std::endl;
+		exit(-1);
+	}
+}
+void ReInit(const int reallocBuffers) {
+	// Check if I have to reallocate buffers
+	if (reallocBuffers) {
+		FreeBuffers();
+		UpdateCamera(camera,image_width,image_height);
+		AllocateBuffers();
+	} else
+		UpdateCamera(camera,image_width,image_height);
+	cl_int status = queue.enqueueWriteBuffer(cameraBuffer, CL_TRUE, 0, sizeof(Camera), &camera);
+	if (status != CL_SUCCESS) {
+		//fprintf(stderr, "Failed to write the OpenCL camera buffer: %d\n", status);
+		std::cerr << "Failed to write the OpenCL camera buffer: "  << std::to_string(status) <<std::endl;
+		exit(-1);
+	}
 
-// specify OpenCL kernel arguments
-kernel.setArg(0, cl_spheres);
-kernel.setArg(1, image_width);
-kernel.setArg(2, image_height);
-kernel.setArg(3, 10);//sphere_count
-kernel.setArg(4, samples);
-kernel.setArg(5, cl_output);
+	currentSample = 0;
+}
+static void ExecuteKernel() {
+	/* Enqueue a kernel run call */
 
 std::cout << "Kernel work group size: " << local_work_size << std::endl;
-
-// Ensure the global work size is a multiple of local work size
 if (global_work_size % local_work_size != 0)
   global_work_size = (global_work_size / local_work_size + 1) * local_work_size;
 
 queue.enqueueNDRangeKernel(kernel, cl::NullRange, global_work_size, local_work_size);
-queue.finish();
-queue.enqueueReadBuffer(cl_output, CL_TRUE, 0, image_width * image_height * sizeof(cl_float3), cpu_output);
+}
+void UpdateRendering() {
+	double startTime = WallClockTime();
+	int startSampleCount = currentSample;
+
+	/* Set kernel arguments */
+	kernel.setArg(0, colorBuffer);
+	kernel.setArg(1, seedBuffer);
+	kernel.setArg(2, sphereBuffer);
+	kernel.setArg(3, cameraBuffer);
+	kernel.setArg(4, image_width);
+	kernel.setArg(5, image_height);	
+	kernel.setArg(6, currentSample);	
+	kernel.setArg(7, pixelBuffer);	
+
+
+	//--------------------------------------------------------------------------
+
+	if (currentSample < 20) {
+		ExecuteKernel();
+		currentSample++;
+	} else {
+		/* After first 20 samples, continue to execute kernels for more and more time */
+		const float k = min2(currentSample - 20, 100) / 100.f;
+		const float tresholdTime = 0.5f * k;
+		for (;;) {
+			ExecuteKernel();
+			queue.finish();
+			currentSample++;
+
+			const float elapsedTime = WallClockTime() - startTime;
+			if (elapsedTime > tresholdTime)
+				break;
+		}
+	}
+
+	//--------------------------------------------------------------------------
+
+	/* Enqueue readBuffer */
+	cl_int status = queue.enqueueWriteBuffer(pixelBuffer, CL_TRUE, 0, image_width * image_height * sizeof(unsigned int), pixels);
+	if (status != CL_SUCCESS) {
+		//fprintf(stderr, "Failed to read the OpenCL pixel buffer: %d\n", status);
+		std::cerr << "Failed to read the OpenCL pixel buffer:"  << std::to_string(status) <<std::endl;
+		exit(-1);
+	}
+
+	/*------------------------------------------------------------------------*/
+
+	const double elapsedTime = WallClockTime() - startTime;
+	const int samples = currentSample - startSampleCount;
+	const double sampleSec = samples * image_height * image_width / elapsedTime;
+	//sprintf(captionBuffer, "Rendering time %.3f sec (pass %d)  Sample/sec  %.1fK\n",
+	//		elapsedTime, currentSample, sampleSec / 1000.f);
+}
+
+
+
+
+
+int main(int argc, char *argv[])
+{
+ReadScene("Scenes/cornell.scn",spheres,sphere_count,camera);
+UpdateCamera(camera,image_width,image_height);
+if (setOpenCL("Ray tracer.cl") == 0){
+
+	InitGlut(argc, argv, "Test");
+	glutMainLoop();
+
 saveImage();
 	std::cout << "Rendering done!\nSaved image to 'opencl_raytracer.ppm'" << std::endl;
 
-	// release memory
-	cleanUp();
 }
 else
   {

@@ -1,16 +1,13 @@
-#pragma once
 
-#include "vec.h"
+
 #include <math.h>
+#include "vec.h"
 #define EPSILON 0.00003f
 #define FLOAT_PI 3.14159265358979323846f 
 
 typedef struct {
 	Vec o, d;
 } Ray;
-
-#define rinit(r, a, b) { vassign((r).o, a); vassign((r).d, b); }
-#define rassign(a, b) { vassign((a).o, (b).o); vassign((a).d, (b).d); }
 
 enum Refl {
 	DIFF, SPEC, REFR
@@ -21,6 +18,11 @@ typedef struct {
 	Vec p, e, c; /* position, emission, color */
 	enum Refl refl; /* reflection type (DIFFuse, SPECular, REFRactive) */
 } Sphere;
+
+#define rinit(r, a, b) { vassign((r).o, a); vassign((r).d, b); }
+#define rassign(a, b) { vassign((a).o, (b).o); vassign((a).d, (b).d); }
+
+
 
 static float get_random(unsigned int *seed0, unsigned int *seed1) {
 
@@ -71,7 +73,7 @@ OCL_CONSTANT_BUFFER
 
 static void UniformSampleSphere(const float u1, const float u2, Vec *v) {
 	const float zz = 1.f - 2.f * u1;
-	const float r = sqrt(max(0.f, 1.f - zz * zz));
+	const float r = sqrt(max2(0.f, 1.f - zz * zz));
 	const float phi = 2.f * FLOAT_PI * u2;
 	const float xx = r * cos(phi);
 	const float yy = r * sin(phi);
