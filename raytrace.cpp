@@ -1,86 +1,5 @@
-//#include <stdio.h>
-#include <cstdlib>
-//#include <time.h>
-#include <string>
-#include <iostream>
-#include <fstream>
-#include <filesystem>
-namespace fs = std::filesystem;
-typedef unsigned char ubyte;
 
-#define __CL_ENABLE_EXCEPTIONS
-#ifdef __APPLE__
-#include <OpenCL/cl.hpp>
-#else
-#include <CL/cl.hpp>
-#endif
-
-#ifdef __APPLE__
-#include <GLut/glut.h>
-#else
-#include <GL/glut.h>
-#include <GL/glu.h>
-#endif
-
-#include <boost/thread.hpp>
-
-#include "vec.h"
-
-typedef struct
-{
-	/* User defined values */
-	Vec orig, target;
-	/* Calculated values */
-	Vec dir, x, y;
-} Camera;
-//#include "display.h"
-//#include "geomfunc.h"
-
-typedef struct
-{
-	Vec o, d;
-} Ray;
-
-#define rinit(r, a, b)     \
-	{                      \
-		vassign((r).o, a); \
-		vassign((r).d, b); \
-	}
-#define rassign(a, b)          \
-	{                          \
-		vassign((a).o, (b).o); \
-		vassign((a).d, (b).d); \
-	}
-
-enum Refl
-{
-	DIFF,
-	SPEC,
-	REFR
-}; /* material types, used in radiance() */
-
-typedef struct
-{
-
-	float rad; /* radius */
-
-	Vec p, e, c;	/* position, emission, color */
-	enum Refl refl; /* reflection type (DIFFuse, SPECular, REFRactive) */
-} Sphere;
-
-#ifdef WIN32
-#define _USE_MATH_DEFINES
-#endif
-#include <cmath>
-
-#if defined(__linux__) || defined(__APPLE__)
-#include <sys/time.h>
-#elif defined(WIN32)
-#include <windows.h>
-#else
-Unsupported Platform !!!
-#endif
-
+#include "raytrace.hpp"
 static int image_width = 640;
 static int image_height = 480;
 
@@ -103,9 +22,11 @@ static Vec *colors;
 static unsigned int *seeds;
 Camera camera;
 static int currentSample = 0;
+static int currentSphere = 0;
 Sphere *spheres;
 unsigned int sphere_count = 0;
 unsigned int *pixels;
+
 boost::barrier *threadStartBarrier = new boost::barrier(2);
 boost::barrier *threadEndBarrier = new boost::barrier(2);
 boost::thread renderThread;
@@ -161,11 +82,11 @@ void ReadScene(std::string fileName)
 		Sphere *s = &spheres[i];
 		int mat;
 		int c = fscanf(f, "sphere %f  %f %f %f  %f %f %f  %f %f %f  %d\n",
-					   &s->rad, //Radius
-					   &s->p.x, &s->p.y, &s->p.z,//Position
-					   &s->e.x, &s->e.y, &s->e.z,//Emision
-					   &s->c.x, &s->c.y, &s->c.z,//Color
-					   &mat);//Material
+					   &s->rad,					  //Radius
+					   &s->p.x, &s->p.y, &s->p.z, //Position
+					   &s->e.x, &s->e.y, &s->e.z, //Emision
+					   &s->c.x, &s->c.y, &s->c.z, //Color
+					   &mat);					  //Material
 		switch (mat)
 		{
 		case 0:
@@ -178,14 +99,14 @@ void ReadScene(std::string fileName)
 			s->refl = REFR;
 			break;
 		default:
-			
+
 			std::cerr << "Failed to read material type for sphere #" << std::to_string(i) << ": " << std::to_string(mat) << std::endl;
 			exit(-1);
 			break;
 		}
 		if (c != 11)
 		{
-			
+
 			std::cerr << "Failed to read sphere #" << std::to_string(i) << ": " << std::to_string(c) << std::endl;
 			exit(-1);
 		}
@@ -193,6 +114,41 @@ void ReadScene(std::string fileName)
 
 	fclose(f);
 }
+Refl returnEnum(int n){
+switch (n)
+		{
+		case 0:
+			return DIFF;
+		case 1:
+			return SPEC;
+		case 2:
+			return REFR;
+		default:
+
+			std::cerr << "Failed to read material type for number"<<std::to_string(n) << std::endl;
+			exit(-1);
+			
+		}
+
+}
+std::string returnEnumString(Refl e){
+switch (e)
+		{
+		case 0:
+			return "Diffuse";
+		case 1:
+			return "Specular";
+		case 2:
+			return "Refractive";
+		default:
+
+			std::cerr << "Failed to read material type for number"<<std::to_string(e) << std::endl;
+			exit(-1);
+			
+		}
+
+}
+
 void UpdateCamera()
 {
 	vsub(camera.dir, camera.target, camera.orig);
@@ -213,7 +169,6 @@ void UpdateCamera()
 		std::cerr << "Failed to write the OpenCL camera buffer: " << std::to_string(status) << std::endl;
 		exit(-1);
 	}
-
 }
 void waitExecute()
 {
@@ -251,7 +206,7 @@ void UpdateRendering()
 
 		/* After first 20 samples, continue to execute kernels for more and more time */
 		const float k = std::min(currentSample - 20u, 100u) / 100.f;
-		const float tresholdTime = 0.7f * k;
+		const float tresholdTime = 0.35f * k;
 		for (;;)
 		{
 			waitExecute();
@@ -264,7 +219,6 @@ void UpdateRendering()
 		}
 	}
 
-
 	/* Enqueue readBuffer */
 	cl_int status = queue.enqueueReadBuffer(pixelBuffer, CL_TRUE, 0, image_width * image_height * sizeof(unsigned int), pixels);
 	if (status != CL_SUCCESS)
@@ -274,17 +228,218 @@ void UpdateRendering()
 		exit(-1);
 	}
 
-
 	const double elapsedTime = WallClockTime() - startTime;
 	//const int samples = currentSample - startSampleCount;
 	//const double sampleSec = samples * image_height * image_width / elapsedTime;
 	//sprintf(captionBuffer, "Rendering time %.3f sec (pass %d)  Sample/sec  %.1fK\n",
 	//		elapsedTime, currentSample, sampleSec / 1000.f);
 }
+void specialFunc(int key, int x, int y) {
+	switch (key) {
+		case GLUT_KEY_UP: {
+			Vec t = camera.target;
+			vsub(t, t, camera.orig);
+			t.y = t.y * cos(-ROTATE_STEP) + t.z * sin(-ROTATE_STEP);
+			t.z = -t.y * sin(-ROTATE_STEP) + t.z * cos(-ROTATE_STEP);
+			vadd(t, t, camera.orig);
+			camera.target = t;
+			ReInit(0);
+			break;
+		}
+		case GLUT_KEY_DOWN: {
+			Vec t = camera.target;
+			vsub(t, t, camera.orig);
+			t.y = t.y * cos(ROTATE_STEP) + t.z * sin(ROTATE_STEP);
+			t.z = -t.y * sin(ROTATE_STEP) + t.z * cos(ROTATE_STEP);
+			vadd(t, t, camera.orig);
+			camera.target = t;
+			ReInit(0);
+			break;
+		}
+		case GLUT_KEY_LEFT: {
+			Vec t = camera.target;
+			vsub(t, t, camera.orig);
+			t.x = t.x * cos(-ROTATE_STEP) - t.z * sin(-ROTATE_STEP);
+			t.z = t.x * sin(-ROTATE_STEP) + t.z * cos(-ROTATE_STEP);
+			vadd(t, t, camera.orig);
+			camera.target = t;
+			ReInit(0);
+			break;
+		}
+		case GLUT_KEY_RIGHT: {
+			Vec t = camera.target;
+			vsub(t, t, camera.orig);
+			t.x = t.x * cos(ROTATE_STEP) - t.z * sin(ROTATE_STEP);
+			t.z = t.x * sin(ROTATE_STEP) + t.z * cos(ROTATE_STEP);
+			vadd(t, t, camera.orig);
+			camera.target = t;
+			ReInit(0);
+			break;
+		}
+		case GLUT_KEY_PAGE_UP:
+			camera.target.y += MOVE_STEP;
+			ReInit(0);
+			break;
+		case GLUT_KEY_PAGE_DOWN:
+			camera.target.y -= MOVE_STEP;
+			ReInit(0);
+			break;
+		default:
+			break;
+	}
+}
 void idleFunc(void)
 {
 	UpdateRendering();
 	glutPostRedisplay();
+}
+void saveImage()
+{
+
+	FILE *f = fopen("Path trace image.ppm", "w"); // Write image to PPM file.
+	if (!f)
+	{
+		fprintf(stderr, "Failed to open image file: image.ppm\n");
+	}
+	else
+	{
+		fprintf(f, "P3\n%d %d\n%d\n", image_width, image_height, 255);
+
+		int x, y;
+		for (y = image_height - 1; y >= 0; --y)
+		{
+			unsigned char *p = (unsigned char *)(&pixels[y * image_width]);
+			for (x = 0; x < image_width; ++x, p += 4)
+				fprintf(f, "%d %d %d ", p[0], p[1], p[2]);
+		}
+
+		fclose(f);
+	}
+}
+void ReInit(const int reallocBuffers)
+{
+	queue.finish();
+	// Check if I have to reallocate buffers
+	if (reallocBuffers)
+	{
+
+		FreeBuffers();
+		AllocateBuffers();
+	}
+
+	UpdateCamera();
+
+	currentSample = 0;
+}
+void keyFunc(unsigned char key, int x, int y)
+{
+	switch (key)
+	{
+	case 'p':
+	{
+		saveImage();
+		break;
+	}
+			case 27: /* Escape key */
+			fprintf(stderr, "Done.\n");
+			exit(0);
+			break;
+		case ' ': /* Refresh display */
+			ReInit(1);
+			break;
+		case 'a': {
+			Vec dir = camera.x;
+			vnorm(dir);
+			vsmul(dir, -MOVE_STEP, dir);
+			vadd(camera.orig, camera.orig, dir);
+			vadd(camera.target, camera.target, dir);
+			ReInit(0);
+			break;
+		}
+		case 'd': {
+			Vec dir = camera.x;
+			vnorm(dir);
+			vsmul(dir, MOVE_STEP, dir);
+			vadd(camera.orig, camera.orig, dir);
+			vadd(camera.target, camera.target, dir);
+			ReInit(0);
+			break;
+		}
+		case 'w': {
+			Vec dir = camera.dir;
+			vsmul(dir, MOVE_STEP, dir);
+			vadd(camera.orig, camera.orig, dir);
+			vadd(camera.target, camera.target, dir);
+			ReInit(0);
+			break;
+		}
+		case 's': {
+			Vec dir = camera.dir;
+			vsmul(dir, -MOVE_STEP, dir);
+			vadd(camera.orig, camera.orig, dir);
+			vadd(camera.target, camera.target, dir);
+			ReInit(0);
+			break;
+		}
+		case 'r':
+			camera.orig.y += MOVE_STEP;
+			camera.target.y += MOVE_STEP;
+			ReInit(0);
+			break;
+		case 'f':
+			camera.orig.y -= MOVE_STEP;
+			camera.target.y -= MOVE_STEP;
+			ReInit(0);
+			break;
+		case '+':
+			currentSphere = (currentSphere + 1) % sphere_count;
+			fprintf(stderr, "Selected sphere %d (%f %f %f)\n", currentSphere,
+					spheres[currentSphere].p.x, spheres[currentSphere].p.y, spheres[currentSphere].p.z);
+			ReInitScene();
+			break;
+		case '-':
+			currentSphere = (currentSphere + (sphere_count - 1)) % sphere_count;
+			fprintf(stderr, "Selected sphere %d (%f %f %f)\n", currentSphere,
+					spheres[currentSphere].p.x, spheres[currentSphere].p.y, spheres[currentSphere].p.z);
+			ReInitScene();
+			break;
+		case '4':
+			spheres[currentSphere].p.x -= 0.5f * MOVE_STEP;
+			ReInitScene();
+			break;
+		case '6':
+			spheres[currentSphere].p.x += 0.5f * MOVE_STEP;
+			ReInitScene();
+			break;
+		case '7':
+			spheres[currentSphere].refl = returnEnum((spheres[currentSphere].refl +1) % 3);
+			std::cout << "Selected sphere " <<std::to_string(currentSphere)<<". Type of reflection: "<< returnEnumString(returnEnum((spheres[currentSphere].refl +1) % 3))<<"."<<std::endl;
+			ReInitScene();
+			break;
+		case '8':
+			spheres[currentSphere].p.z -= 0.5f * MOVE_STEP;
+			ReInitScene();
+			break;
+		case '2':
+			spheres[currentSphere].p.z += 0.5f * MOVE_STEP;
+			ReInitScene();
+			break;
+		case '9':
+			spheres[currentSphere].p.y += 0.5f * MOVE_STEP;
+			ReInitScene();
+			break;
+		case '3':
+			spheres[currentSphere].p.y -= 0.5f * MOVE_STEP;
+			ReInitScene();
+			break;
+		case '1':
+			spheres[currentSphere].refl = returnEnum( (spheres[currentSphere].refl + (2)) % 3);
+			std::cout << "Selected sphere " <<std::to_string(currentSphere)<<". Type of reflection: "<< returnEnumString(returnEnum((spheres[currentSphere].refl +1) % 3))<<"."<<std::endl;
+			ReInitScene();
+			break;
+		default:
+			break;
+	}
 }
 
 void displayFunc(void)
@@ -358,21 +513,6 @@ void AllocateBuffers()
 		std::cout << "Error: " << std::endl;
 	}
 }
-void ReInit(const int reallocBuffers)
-{	queue.finish();
-	// Check if I have to reallocate buffers
-	if (reallocBuffers)
-	{	
-		
-		FreeBuffers();
-		AllocateBuffers();
-
-	}
-	
-	UpdateCamera();
-	
-	currentSample = 0;
-}
 void reshapeFunc(int newWidth, int newHeight)
 {
 	image_width = newWidth;
@@ -396,10 +536,10 @@ void InitGlut(int argc, char *argv[], char *windowTittle)
 	glutCreateWindow(windowTittle);
 }
 void runGlut()
-{
+{	glutSetKeyRepeat(GLUT_KEY_REPEAT_ON);
 	glutReshapeFunc(reshapeFunc);
-	//glutKeyboardFunc(keyFunc);
-	//glutSpecialFunc(specialFunc);
+	glutKeyboardFunc(keyFunc);
+	glutSpecialFunc(specialFunc);
 	glutDisplayFunc(displayFunc);
 	glutIdleFunc(idleFunc);
 
@@ -446,7 +586,6 @@ void render()
 		std::cerr << " ERROR: " << err.what() << "(" << err.err() << ")" << std::endl;
 	}
 }
-
 int setOpenCL(const std::string &sourceName)
 {
 
@@ -525,7 +664,6 @@ int setOpenCL(const std::string &sourceName)
 		{
 			device_id = 0;
 		}
-	
 
 		std::cout << std::endl;
 		std::cout << "Platform:" << std::endl;
@@ -559,7 +697,6 @@ int setOpenCL(const std::string &sourceName)
 #endif
 								  sizeof(Camera));
 		queue.enqueueWriteBuffer(cameraBuffer, CL_TRUE, 0, sizeof(Camera), &camera);
-
 
 		// Read the program source
 		std::ifstream sourceFile(sourceName);
@@ -606,34 +743,8 @@ int setOpenCL(const std::string &sourceName)
 
 	return (EXIT_SUCCESS);
 }
-
-void saveImage()
-{
-
-	FILE *f = fopen("image.ppm", "w"); // Write image to PPM file.
-	if (!f)
-	{
-		fprintf(stderr, "Failed to open image file: image.ppm\n");
-	}
-	else
-	{
-		fprintf(f, "P3\n%d %d\n%d\n", image_width, image_height, 255);
-
-		int x, y;
-		for (y = image_height - 1; y >= 0; --y)
-		{
-			unsigned char *p = (unsigned char *)(&pixels[y * image_width]);
-			for (x = 0; x < image_width; ++x, p += 4)
-				fprintf(f, "%d %d %d ", p[0], p[1], p[2]);
-		}
-
-		fclose(f);
-	}
-}
-
 void ReInitScene()
 {
-	std::cout << "Reinitcene" << std::endl;
 	currentSample = 0;
 
 	// Redownload the scene
@@ -645,17 +756,15 @@ void ReInitScene()
 		exit(-1);
 	}
 }
-
-int main(int argc, char *argv[]) noexcept
+int main(int argc, char *argv[])
 {
 	try
-	{	
-		
+	{
+
 		std::cout << std::endl;
 		std::cout << "Enter width of image." << std::endl;
 		std::cin >> image_width;
 
-		
 		std::cout << "Enter height of image." << std::endl;
 		std::cin >> image_height;
 		std::cout << std::endl;
@@ -663,36 +772,39 @@ int main(int argc, char *argv[]) noexcept
 		std::cout << "List of scenes availables: " << std::endl;
 		std::string path = "scenes";
 		int counter = 0;
-		for (const auto & entry : fs::directory_iterator(path)){
-				counter+=1;
+		for (const auto &entry : fs::directory_iterator(path))
+		{
+			counter += 1;
 		}
 		std::string scenes[counter];
 		counter = 0;
-    	for (const auto & entry : fs::directory_iterator(path)){
-				std::cout << std::to_string(counter) << ") "<<entry.path() << std::endl;
-				scenes[counter] = entry.path().string();
-				counter +=1;
+		for (const auto &entry : fs::directory_iterator(path))
+		{
+			std::cout << std::to_string(counter) << ") " << entry.path() << std::endl;
+			scenes[counter] = entry.path().string();
+			counter += 1;
 		}
-        int correct_scene = 0;
+		int correct_scene = 0;
 		std::string scene;
 		int selected;
 		std::cout << std::endl;
-		while(correct_scene == 0){
+		while (correct_scene == 0)
+		{
 			std::cout << "Enter the number of the scene to load: " << std::endl;
 			std::cin >> selected;
-			
-			if(selected < counter){
+
+			if (selected < counter)
+			{
 
 				scene = scenes[selected];
 				correct_scene = 1;
 			}
-			else{
+			else
+			{
 				std::cout << "Number of scene doesn't exist. Please try again with a number from the list." << std::endl;
 			}
-
 		}
 
-	
 		char const *title = "test";
 		InitGlut(argc, argv, (char *)title);
 		ReadScene(scene);
