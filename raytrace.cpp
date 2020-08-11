@@ -266,7 +266,7 @@ void UpdateRendering()
 	//queue.finish();
 	/* Enqueue readBuffer */
 	cl_int status = queue.enqueueReadBuffer(pixelBuffer, CL_TRUE, 0, image_width * image_height * sizeof(unsigned int), pixels);
-	std::cout << "UpdatedRendering" << std::endl;
+	//std::cout << "UpdatedRendering" << std::endl;
 	if (status != CL_SUCCESS)
 	{
 
@@ -285,7 +285,7 @@ void UpdateRendering()
 }
 void idleFunc(void)
 {
-	std::cout << "IdleFUnch" << std::endl;
+	//std::cout << "IdleFUnch" << std::endl;
 	UpdateRendering();
 
 	glutPostRedisplay();
@@ -295,25 +295,23 @@ void displayFunc(void)
 {
 	UpdateRendering();
 
-	//glClear(GL_COLOR_BUFFER_BIT);
+	glClear(GL_COLOR_BUFFER_BIT);
 	glRasterPos2i(0, 0);
-	std::cout << "Raster" << std::endl;
-	glDrawPixels(image_height, image_width, GL_RGB, GL_UNSIGNED_BYTE, pixels);
-	std::cout << "Draw pixels" << std::endl;
+	//std::cout << "Raster" << std::endl;
+	glDrawPixels(640, 480, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+	//std::cout << "Draw pixels" << std::endl;
 	glutSwapBuffers();
-
-	
 }
 void FreeBuffers()
 {
-	std::cout << "FreeBuffers" << std::endl;
+	//std::cout << "FreeBuffers" << std::endl;
 	free(seeds);
 	free(colors);
 	free(pixels);
 }
 void AllocateBuffers()
 {
-	std::cout << "AllocateBuffers" << std::endl;
+	//std::cout << "AllocateBuffers" << std::endl;
 	try
 	{
 		const size_t pixelCount = image_width * image_height;
@@ -369,7 +367,7 @@ void AllocateBuffers()
 }
 void ReInit(const int reallocBuffers)
 {
-	std::cout << "ReInit" << std::endl;
+	//std::cout << "ReInit" << std::endl;
 	// Check if I have to reallocate buffers
 	if (reallocBuffers)
 	{
@@ -391,7 +389,7 @@ void ReInit(const int reallocBuffers)
 }
 void reshapeFunc(int newWidth, int newHeight)
 {
-	std::cout << "ReshapeFunc" << std::endl;
+	//std::cout << "ReshapeFunc" << std::endl;
 	image_width = newWidth;
 	image_height = newHeight;
 
@@ -589,13 +587,12 @@ int setOpenCL(const std::string &sourceName)
 		//std::cout << "Number of spheres:" <<std::to_string(sphere_count) << std::endl;
 		//std::cout << "Size of Sphere:" <<std::to_string(sizeof(Sphere)) << std::endl;
 
-		
 		//renderThead.join();
 		sphereBuffer = cl::Buffer(context,
 #ifdef __APPLE__
 								  CL_MEM_READ_WRITE, // NOTE: not READ_ONLY because of Apple's OpenCL bug
 #else
-								  CL_MEM_READ_ONLY ,
+								  CL_MEM_READ_ONLY,
 #endif
 								  sizeof(Sphere) * sphere_count);
 		//std::cout << "Sphere buffer created:" << std::endl;
@@ -606,14 +603,14 @@ int setOpenCL(const std::string &sourceName)
 #ifdef __APPLE__
 								  CL_MEM_READ_WRITE, // NOTE: not READ_ONLY because of Apple's OpenCL bug
 #else
-								  CL_MEM_READ_ONLY ,
+								  CL_MEM_READ_ONLY,
 #endif
 								  sizeof(Camera));
 		//std::cout << "Camera buffer created:" << std::endl;
 		queue.enqueueWriteBuffer(cameraBuffer, CL_TRUE, 0, sizeof(Camera), &camera);
 		//std::cout << "Enqueued write buffer camera" << std::endl;
 		//AllocateBuffers();
-		std::cout << "AllocateBuffers() done" << std::endl;
+		//std::cout << "AllocateBuffers() done" << std::endl;
 
 		// Read the program source
 		std::ifstream sourceFile(sourceName);
@@ -711,7 +708,7 @@ int main(int argc, char *argv[]) noexcept
 		char const *scene = "scenes/cornell.scn";
 		ReadScene(scene);
 		//std::cout << "Scene read" << std::endl;
-		UpdateCamera();
+		//UpdateCamera();
 		//std::cout << "Updated Camera" << std::endl;
 		setOpenCL("Ray tracer.cl");
 		/*
