@@ -181,13 +181,18 @@ void InitGlut(int argc, char *argv[], char *windowTittle) {
 
 	glutCreateWindow(windowTittle);
 
-    glutReshapeFunc(reshapeFunc);
+  
+}
+void runGlut(){
+  glutReshapeFunc(reshapeFunc);
     //glutKeyboardFunc(keyFunc);
     //glutSpecialFunc(specialFunc);
     glutDisplayFunc(displayFunc);
 	glutIdleFunc(idleFunc);
 
+	glMatrixMode(GL_PROJECTION);
 	glViewport(0, 0, image_width, image_height);
 	glLoadIdentity();
 	glOrtho(0.f, image_width - 1.f, 0.f, image_height - 1.f, -1.f, 1.f);
+	glutMainLoop();
 }

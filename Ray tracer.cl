@@ -59,10 +59,10 @@ void GenerateCameraRay(OCL_CONSTANT_BUFFER Camera *camera,
 
 __kernel void RadianceGPU(
     __global Vec *colors, __global unsigned int *seedsInput,
-	OCL_CONSTANT_BUFFER Sphere *sphere, OCL_CONSTANT_BUFFER Camera *camera,
+	OCL_CONSTANT_BUFFER const Sphere *sphere, OCL_CONSTANT_BUFFER const Camera *camera,
 	const unsigned int sphereCount,
-	const int width, const int height,
-	const int currentSample,
+	const unsigned int width, const unsigned int height,
+	const unsigned int currentSample,
 	__global int *pixels) 
 	{
     const int gid = get_global_id(0);
@@ -84,7 +84,8 @@ __kernel void RadianceGPU(
 	Vec r;
 	RadiancePathTracing(sphere, sphereCount, &ray, &seed0, &seed1, &r);
 
-	const int i = (height - y - 1) * width + x;
+	//const int i = (height - y - 1) * width + x;
+	const int i = gid;
 	if (currentSample == 0) {
 		// Jens's patch for MacOS
 		vassign(colors[i], r);

@@ -32,7 +32,11 @@ int samples = 0;
  cl::CommandQueue queue;
  cl::Program program;
  cl::Kernel kernel;
+ cl::Event kernelexecution;
+boost::barrier threadStartBarrier = new boost::barrier(2);
+boost::barrier threadEndBarrier = new boost::barrier(2);
 
+boost::thread renderThread;
  Vec *colors;
 Camera camera;
  unsigned int *seeds;
@@ -111,9 +115,21 @@ void initScene(Sphere* cpu_spheres){
 void FreeBuffers()
 {
 	std::cout << "FreeBuffers"<<std::endl;
-	free(seeds);
-	free(colors);
-	free(pixels);
+	delete queue;
+	delete kernel;
+	delete sphereBuffer;
+	delete camaraBuffer;
+	if(colorBuffer)
+		delete colorBuffer;
+	if(pixelBuffer)
+		delete pixelBuffer;
+	if(seedBuffer)
+		delete seedBuffer;
+	if(colors)
+		delete colors
+	if(seeds)
+		delete seeds;
+	delete context;
 }
  void AllocateBuffers()
 {	std::cout << "AllocateBuffers"<<std::endl;
@@ -169,6 +185,51 @@ void FreeBuffers()
 	{
 		std::cout << "Error: " << std::endl;
 	}
+}
+void renderThread(){
+try {
+		for (;;) {
+			threadStartBarrier->wait();
+
+				/* Set kernel arguments */
+
+	kernel.setArg(0, colorBuffer);
+	//std::cout << "arg 0 set" << std::endl;
+	kernel.setArg(1, seedBuffer);
+	//std::cout << "arg 1 set" << std::endl;
+	kernel.setArg(2, sphereBuffer);
+	//std::cout << "arg 2 set" << std::endl;
+	kernel.setArg(3, cameraBuffer);
+	//std::cout << "arg 3 set" << std::endl;
+	kernel.setArg(4, sphere_count);
+	//std::cout << "arg 4 set" << std::endl;
+	kernel.setArg(5, image_width);
+	//std::cout << "arg 5 set" << std::endl;
+	kernel.setArg(6, image_height);
+	//std::cout << "arg 6 set" << std::endl;
+	kernel.setArg(7, currentSample);
+	//std::cout << "arg 7 set" << std::endl;
+	kernel.setArg(8, pixelBuffer);
+	//std::cout << "arg 8 set" << std::endl;
+
+			ExecuteKernel();
+			cl_int status = queue.enqueueReadBuffer(pixelBuffer, CL_TRUE, 0, image_width * image_height * sizeof(unsigned int), pixels);
+
+			renderDevice->FinishExecuteKernel();
+			renderDevice->Finish();
+
+			renderDevice->threadEndBarrier->wait();
+		}
+	} catch (boost::thread_interrupted) {
+		cerr << "[Device::" << renderDevice->GetName() << "] Rendering thread halted" << endl;
+	} catch (cl::Error err) {
+		cerr << "[Device::" << renderDevice->GetName() << "] ERROR: " << err.what() << "(" << err.err() << ")" << endl;
+	}
+
+
+
+
+
 }
  int setOpenCL(const std::string &sourceName)
 {
@@ -273,32 +334,36 @@ void FreeBuffers()
 				  << std::endl;
 
 		// Create a context
-		cl::Context contextray(devices);
-		context = contextray;
+		
+		context = new cl::Context(devices);
 		//std::cout << "Context created" << std::endl;
 		// Create a command queue
 		queue = cl::CommandQueue(context, devices[device_id]);
 		//std::cout << "Command queue created:" << std::endl;
 		//std::cout << "Number of spheres:" <<std::to_string(sphere_count) << std::endl;
 		//std::cout << "Size of Sphere:" <<std::to_string(sizeof(Sphere)) << std::endl;
-		sphereBuffer = cl::Buffer(context,
+		
+		renderThread = new boost::thread(boost::bind(RenderDevice::RenderThread, this));
+		sphereBuffer = cl::Buffer(*context,
 #ifdef __APPLE__
 								  CL_MEM_READ_WRITE, // NOTE: not READ_ONLY because of Apple's OpenCL bug
 #else
-								  CL_MEM_READ_ONLY,
+								  CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR,
 #endif
-								  sizeof(Sphere) * sphere_count);
+								  sizeof(Sphere) * sphere_count,
+								  spheres);
 		//std::cout << "Sphere buffer created:" << std::endl;
 		queue.enqueueWriteBuffer(sphereBuffer, CL_TRUE, 0, sizeof(Sphere) * sphere_count, spheres);
 		//std::cout << "Enqueued write buffer spheres" << std::endl;
 
-		cameraBuffer = cl::Buffer(context,
+		cameraBuffer = cl::Buffer(*context,
 #ifdef __APPLE__
 								  CL_MEM_READ_WRITE, // NOTE: not READ_ONLY because of Apple's OpenCL bug
 #else
-								  CL_MEM_READ_ONLY,
+								  CL_MEM_READ_ONLY | CL_MEM_USE_HOST_PTR,
 #endif
-								  sizeof(Camera));
+								  sizeof(Camera),
+								  camera);
 		//std::cout << "Camera buffer created:" << std::endl;
 		queue.enqueueWriteBuffer(cameraBuffer, CL_TRUE, 0, sizeof(Camera), &camera);
 		//std::cout << "Enqueued write buffer camera" << std::endl;
@@ -372,6 +437,7 @@ void saveImage(){
  void ExecuteKernel()
 {	std::cout << "ExecuteKernel"<<std::endl;
 	/* Enqueue a kernel run call */
+	kernelexecution = cl::Event();
 	queue.enqueueNDRangeKernel(kernel, cl::NullRange, global_work_size, local_work_size);
 }
  void UpdateRendering()
@@ -379,26 +445,7 @@ void saveImage(){
 	double startTime = WallClockTime();
 	int startSampleCount = currentSample;
 
-	/* Set kernel arguments */
 
-	kernel.setArg(0, colorBuffer);
-	//std::cout << "arg 0 set" << std::endl;
-	kernel.setArg(1, seedBuffer);
-	//std::cout << "arg 1 set" << std::endl;
-	kernel.setArg(2, sphereBuffer);
-	//std::cout << "arg 2 set" << std::endl;
-	kernel.setArg(3, cameraBuffer);
-	//std::cout << "arg 3 set" << std::endl;
-	kernel.setArg(4, sphere_count);
-	//std::cout << "arg 4 set" << std::endl;
-	kernel.setArg(5, image_width);
-	//std::cout << "arg 5 set" << std::endl;
-	kernel.setArg(6, image_height);
-	//std::cout << "arg 6 set" << std::endl;
-	kernel.setArg(7, currentSample);
-	//std::cout << "arg 7 set" << std::endl;
-	kernel.setArg(8, pixelBuffer);
-	//std::cout << "arg 8 set" << std::endl;
 
 	//--------------------------------------------------------------------------
 
@@ -462,7 +509,7 @@ void ReInit(const int reallocBuffers)
 	// Check if I have to reallocate buffers
 	if (reallocBuffers)
 	{
-		FreeBuffers();
+		delete pixels;
 		UpdateCamera();
 		AllocateBuffers();
 	}
