@@ -45,12 +45,12 @@ typedef struct {
 #define vfilter(v) ((v).x > (v).y && (v).x > (v).z ? (v).x : (v).y > (v).z ? (v).y : (v).z)
 #define viszero(v) (((v).x == 0.f) && ((v).x == 0.f) && ((v).z == 0.f))
 
-//#ifndef GPU_KERNEL
+#ifndef GPU_KERNEL
 #define clamp(x, a, b) ((x) < (a) ? (a) : ((x) > (b) ? (b) : (x)))
 #define max2(x, y) ( (x) > (y) ? (x) : (y))
 #define min2(x, y) ( (x) < (y) ? (x) : (y))
 #define sign(x) ((x) > 0 ? 1 : -1)
-//#endif
+#endif
 
 #define toInt(x) ((int)(pow(clamp(x, 0.f, 1.f), 1.f / 2.2f) * 255.f + .5f))
 

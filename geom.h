@@ -1,5 +1,4 @@
 /*
-
 Copyright (c) 2009 David Bucciarelli (davibu@interfree.it)
 
 Permission is hereby granted, free of charge, to any person obtaining
@@ -22,16 +21,28 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
-#ifndef _CAMERA_H
-#define	_CAMERA_H
+#pragma once
 #include "vec.h"
 
-typedef struct {
-	/* User defined values */
-	Vec orig, target;
-	/* Calculated values */
-	Vec dir, x, y;
-} Camera;
+#define EPSILON 0.01f
+#define FLOAT_PI 3.14159265358979323846f
 
-#endif	/* _CAMERA_H */
+typedef struct {
+	Vec o, d;
+} Ray;
+
+#define rinit(r, a, b) { vassign((r).o, a); vassign((r).d, b); }
+#define rassign(a, b) { vassign((a).o, (b).o); vassign((a).d, (b).d); }
+
+enum Refl {
+	DIFF, SPEC, REFR
+}; /* material types, used in radiance() */
+
+typedef struct {
+	float rad; /* radius */
+	Vec p, e, c; /* position, emission, color */
+	enum Refl refl; /* reflection type (DIFFuse, SPECular, REFRactive) */
+} Sphere;
+
+
 

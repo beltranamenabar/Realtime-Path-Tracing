@@ -1,6 +1,6 @@
-//#include <stdio.h>
-#include <cstdlib>
-#include <string>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <iostream>
 #ifdef WIN32
 #define _USE_MATH_DEFINES
@@ -145,20 +145,19 @@ void idleFunc(void) {
 }
 
 void displayFunc(void) {
-	
+	try{
 	std::cout << "DisplayFUnc"<<std::endl;
 	glClearColor(0.0f, 0.0f, 0.0f, 1.0f); 
-	std::cout << "Clear color"<<std::endl;
 	glClear(GL_COLOR_BUFFER_BIT);
-	std::cout << "glClear"<<std::endl;
-	glRasterPos2i(0, 0);
-	std::cout << "glRaster"<<std::endl;
+	//glRasterPos2i(0, 0);
 	glDrawPixels(image_width, image_height, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
-	std::cout << "glDrawPixels"<<std::endl;
+
 	glutSwapBuffers();
-	std::cout << "glutSwapBuffers"<<std::endl;
-	
-	
+	}
+	catch(std::exception& e){
+	std::cout << "test "<<std::endl;
+	std::cerr << e.what() <<std::endl;
+}
 }
 
 void reshapeFunc(int newWidth, int newHeight) {

@@ -1,27 +1,11 @@
 
-#include "vec.h"
-#define EPSILON 0.00003f
-#define FLOAT_PI 3.14159265358979323846f 
+#ifndef _GEOMFUNC_H
+#define	_GEOMFUNC_H
 
-typedef struct {
-	Vec o, d;
-} Ray;
-
-enum Refl {
-	DIFF, SPEC, REFR
-}; /* material types, used in radiance() */
-
-typedef struct {
-	float rad; /* radius */
-	Vec p, e, c; /* position, emission, color */
-	enum Refl refl; /* reflection type (DIFFuse, SPECular, REFRactive) */
-} Sphere;
-
-#define rinit(r, a, b) { vassign((r).o, a); vassign((r).d, b); }
-#define rassign(a, b) { vassign((a).o, (b).o); vassign((a).d, (b).d); }
+#include "geom.h"
 
 
-
+#ifndef SMALLPT_GPU
 static float get_random(unsigned int *seed0, unsigned int *seed1) {
 
 	/* hash the seeds using bitwise AND operations and bitshifts */
@@ -39,7 +23,6 @@ static float get_random(unsigned int *seed0, unsigned int *seed1) {
 	res.ui = (ires & 0x007fffff) | 0x40000000;  /* bitwise AND, bitwise OR */
 	return (res.f - 2.0f) / 2.0f;
 }
-
 static float SphereIntersect(
 #ifdef GPU_KERNEL
 OCL_CONSTANT_BUFFER
@@ -71,7 +54,7 @@ OCL_CONSTANT_BUFFER
 
 static void UniformSampleSphere(const float u1, const float u2, Vec *v) {
 	const float zz = 1.f - 2.f * u1;
-	const float r = sqrt(max2(0.f, 1.f - zz * zz));
+	const float r = sqrt(max(0.f, 1.f - zz * zz));
 	const float phi = 2.f * FLOAT_PI * u2;
 	const float xx = r * cos(phi);
 	const float yy = r * sin(phi);
@@ -84,13 +67,13 @@ static int Intersect(
 OCL_CONSTANT_BUFFER
 #endif
 	const Sphere *spheres,
-	const unsigned int sphereCount,
+	const unsigned int sphere_count,
 	const Ray *r,
 	float *t,
 	unsigned int *id) {
 	float inf = (*t) = 1e20f;
 
-	unsigned int i = sphereCount;
+	unsigned int i = sphere_count;
 	for (; i--;) {
 		const float d = SphereIntersect(&spheres[i], r);
 		if ((d != 0.f) && (d < *t)) {
@@ -107,10 +90,10 @@ static int IntersectP(
 OCL_CONSTANT_BUFFER
 #endif
 	const Sphere *spheres,
-	const unsigned int sphereCount,
+	const unsigned int sphere_count,
 	const Ray *r,
 	const float maxt) {
-	unsigned int i = sphereCount;
+	unsigned int i = sphere_count;
 	for (; i--;) {
 		const float d = SphereIntersect(&spheres[i], r);
 		if ((d != 0.f) && (d < maxt))
@@ -125,7 +108,7 @@ static void SampleLights(
 OCL_CONSTANT_BUFFER
 #endif
 	const Sphere *spheres,
-	const unsigned int sphereCount,
+	const unsigned int sphere_count,
 	unsigned int *seed0, unsigned int *seed1,
 	const Vec *hitPoint,
 	const Vec *normal,
@@ -134,7 +117,7 @@ OCL_CONSTANT_BUFFER
 
 	/* For each light */
 	unsigned int i;
-	for (i = 0; i < sphereCount; i++) {
+	for (i = 0; i < sphere_count; i++) {
 #ifdef GPU_KERNEL
 OCL_CONSTANT_BUFFER
 #endif
@@ -165,7 +148,7 @@ OCL_CONSTANT_BUFFER
 
 			/* Check if the light is visible */
 			const float wi = vdot(shadowRay.d, *normal);
-			if ((wi > 0.f) && (!IntersectP(spheres, sphereCount, &shadowRay, len - EPSILON))) {
+			if ((wi > 0.f) && (!IntersectP(spheres, sphere_count, &shadowRay, len - EPSILON))) {
 				Vec c; vassign(c, light->e);
 				const float s = (4.f * FLOAT_PI * light->rad * light->rad) * wi * wo / (len *len);
 				vsmul(c, s, c);
@@ -180,7 +163,7 @@ static void RadiancePathTracing(
 OCL_CONSTANT_BUFFER
 #endif
 	const Sphere *spheres,
-	const unsigned int sphereCount,
+	const unsigned int sphere_count,
 	const Ray *startRay,
 	unsigned int *seed0, unsigned int *seed1,
 	Vec *result) {
@@ -199,7 +182,7 @@ OCL_CONSTANT_BUFFER
 
 		float t; /* distance to intersection */
 		unsigned int id = 0; /* id of intersected object */
-		if (!Intersect(spheres, sphereCount, &currentRay, &t, &id)) {
+		if (!Intersect(spheres, sphere_count, &currentRay, &t, &id)) {
 			*result = rad; /* if miss, return */
 			return;
 		}
@@ -244,7 +227,7 @@ OCL_CONSTANT_BUFFER
 			/* Direct lighting component */
 
 			Vec Ld;
-			SampleLights(spheres, sphereCount, seed0, seed1, &hitPoint, &nl, &Ld);
+			SampleLights(spheres, sphere_count, seed0, seed1, &hitPoint, &nl, &Ld);
 			vmul(Ld, throughput, Ld);
 			vadd(rad, rad, Ld);
 
@@ -353,7 +336,7 @@ static void RadianceDirectLighting(
 OCL_CONSTANT_BUFFER
 #endif
 	const Sphere *spheres,
-	const unsigned int sphereCount,
+	const unsigned int sphere_count,
 	const Ray *startRay,
 	unsigned int *seed0, unsigned int *seed1,
 	Vec *result) {
@@ -372,7 +355,7 @@ OCL_CONSTANT_BUFFER
 
 		float t; /* distance to intersection */
 		unsigned int id = 0; /* id of intersected object */
-		if (!Intersect(spheres, sphereCount, &currentRay, &t, &id)) {
+		if (!Intersect(spheres, sphere_count, &currentRay, &t, &id)) {
 			*result = rad; /* if miss, return */
 			return;
 		}
@@ -417,7 +400,7 @@ OCL_CONSTANT_BUFFER
 			/* Direct lighting component */
 
 			Vec Ld;
-			SampleLights(spheres, sphereCount, seed0, seed1, &hitPoint, &nl, &Ld);
+			SampleLights(spheres, sphere_count, seed0, seed1, &hitPoint, &nl, &Ld);
 			vmul(Ld, throughput, Ld);
 			vadd(rad, rad, Ld);
 
@@ -493,4 +476,6 @@ OCL_CONSTANT_BUFFER
 	}
 }
 
+#endif
 
+#endif	/* _GEOMFUNC_H */

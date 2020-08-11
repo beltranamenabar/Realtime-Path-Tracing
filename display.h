@@ -1,14 +1,7 @@
-#ifdef WIN32
-#define _USE_MATH_DEFINES
-#endif
+#ifndef _DISPLAYFUNC_H
+#define	_DISPLAYFUNC_H
+#include <math.h>
 
-#if defined(__linux__) || defined(__APPLE__)
-#include <sys/time.h>
-#elif defined (WIN32)
-#include <windows.h>
-#else
-        Unsupported Platform !!!
-#endif
 
 
 
@@ -16,23 +9,23 @@
 #include <GLut/glut.h>
 #else
 #include <GL/glut.h>
+#include <GL/glu.h>
 #endif
 
-#include "camera.h"
-#include "geomfunc.h"
-#include <iostream>
+#include "vec.h"
+
 
 extern int image_width;
 extern int image_height;
 extern unsigned int *pixels;
-extern unsigned int sphere_count;
-extern Camera camera;
-extern Sphere *spheres;
+
 
 void InitGlut(int argc, char *argv[], char *windowTittle);
-void ReadScene(char *fileName);
+void ReadScene(char const *fileName);
 double WallClockTime();
 void UpdateCamera();
-void ReInit(const int reallocBuffers);
-void idleFunc(void);
-void UpdateRendering();
+//void ReInit(const int reallocBuffers);
+//void idleFunc(void);
+//void UpdateRendering();
+
+#endif	/* _DISPLAYFUNC_H */
