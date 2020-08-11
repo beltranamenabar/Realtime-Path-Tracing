@@ -4,6 +4,8 @@
 #include <string>
 #include <iostream>
 #include <fstream>
+#include <filesystem>
+namespace fs = std::filesystem;
 typedef unsigned char ubyte;
 
 #define __CL_ENABLE_EXCEPTIONS
@@ -122,14 +124,12 @@ double WallClockTime()
 #endif
 }
 
-void ReadScene(char const *fileName)
+void ReadScene(std::string fileName)
 {
-	//fprintf(stderr, "Reading scene: %s\n", fileName);
 	std::cerr << "Reading scene: " << fileName << std::endl;
-	FILE *f = fopen(fileName, "r");
+	FILE *f = fopen(fileName.c_str(), "r");
 	if (!f)
 	{
-		//fprintf(stderr, "Failed to open file: %s\n", fileName);
 		std::cerr << "Failed to open file: " << fileName << std::endl;
 		exit(-1);
 	}
@@ -140,22 +140,19 @@ void ReadScene(char const *fileName)
 				   &camera.target.x, &camera.target.y, &camera.target.z);
 	if (c != 6)
 	{
-		//fprintf(stderr, "Failed to read 6 camera parameters: %d\n", c);
 		std::cerr << "Failed to read 6 camera parameters: " << std::to_string(c) << std::endl;
 		exit(-1);
 	}
 
 	/* Read the sphere count */
 	c = fscanf(f, "size %u\n", &sphere_count);
-	//std::cout << "Number of spheres: " << std::to_string(sphere_count)<<std::endl;
 	if (c != 1)
 	{
-		//fprintf(stderr, "Failed to read sphere count: %d\n", c);
+
 		std::cerr << "Failed to read sphere count: " << std::to_string(c) << std::endl;
 		exit(-1);
 	}
-	//fprintf(stderr, "Scene size: %d\n", sphereCount);
-	//std::cerr << "Scene size: "  << std::to_string(sphere_count) << std::endl;
+
 	/* Read all spheres */
 	spheres = (Sphere *)malloc(sizeof(Sphere) * sphere_count);
 	unsigned int i;
@@ -164,11 +161,11 @@ void ReadScene(char const *fileName)
 		Sphere *s = &spheres[i];
 		int mat;
 		int c = fscanf(f, "sphere %f  %f %f %f  %f %f %f  %f %f %f  %d\n",
-					   &s->rad,
-					   &s->p.x, &s->p.y, &s->p.z,
-					   &s->e.x, &s->e.y, &s->e.z,
-					   &s->c.x, &s->c.y, &s->c.z,
-					   &mat);
+					   &s->rad, //Radius
+					   &s->p.x, &s->p.y, &s->p.z,//Position
+					   &s->e.x, &s->e.y, &s->e.z,//Emision
+					   &s->c.x, &s->c.y, &s->c.z,//Color
+					   &mat);//Material
 		switch (mat)
 		{
 		case 0:
@@ -181,14 +178,14 @@ void ReadScene(char const *fileName)
 			s->refl = REFR;
 			break;
 		default:
-			//fprintf(stderr, "Failed to read material type for sphere #%d: %d\n", i, mat);
+			
 			std::cerr << "Failed to read material type for sphere #" << std::to_string(i) << ": " << std::to_string(mat) << std::endl;
 			exit(-1);
 			break;
 		}
 		if (c != 11)
 		{
-			//fprintf(stderr, "Failed to read sphere #%d: %d\n", i, c);
+			
 			std::cerr << "Failed to read sphere #" << std::to_string(i) << ": " << std::to_string(c) << std::endl;
 			exit(-1);
 		}
@@ -198,7 +195,6 @@ void ReadScene(char const *fileName)
 }
 void UpdateCamera()
 {
-	std::cout << "UpdateCamera" << std::endl;
 	vsub(camera.dir, camera.target, camera.orig);
 	vnorm(camera.dir);
 
@@ -211,6 +207,13 @@ void UpdateCamera()
 	vxcross(camera.y, camera.x, camera.dir);
 	vnorm(camera.y);
 	vsmul(camera.y, fov, camera.y);
+	cl_int status = queue.enqueueWriteBuffer(cameraBuffer, CL_TRUE, 0, sizeof(Camera), &camera);
+	if (status != CL_SUCCESS)
+	{
+		std::cerr << "Failed to write the OpenCL camera buffer: " << std::to_string(status) << std::endl;
+		exit(-1);
+	}
+
 }
 void waitExecute()
 {
@@ -223,10 +226,9 @@ void waitExecute()
 }
 void ExecuteKernel()
 {
-	//std::cout << "ExecuteKernel" << std::endl;
 	/* Enqueue a kernel run call */
-	//std::cout << std::to_string(global_work_size) << std::endl;
-	//std::cout << std::to_string(local_work_size) << std::endl;
+	if (global_work_size % local_work_size != 0)
+		global_work_size = (global_work_size / local_work_size + 1) * local_work_size;
 	kernelExecutionTime = cl::Event();
 	queue.enqueueNDRangeKernel(kernel, cl::NullRange, global_work_size, local_work_size, NULL, &kernelExecutionTime);
 }
@@ -249,7 +251,7 @@ void UpdateRendering()
 
 		/* After first 20 samples, continue to execute kernels for more and more time */
 		const float k = std::min(currentSample - 20u, 100u) / 100.f;
-		const float tresholdTime = 0.5f * k;
+		const float tresholdTime = 0.7f * k;
 		for (;;)
 		{
 			waitExecute();
@@ -262,20 +264,16 @@ void UpdateRendering()
 		}
 	}
 
-	//--------------------------------------------------------------------------
-	//queue.finish();
+
 	/* Enqueue readBuffer */
 	cl_int status = queue.enqueueReadBuffer(pixelBuffer, CL_TRUE, 0, image_width * image_height * sizeof(unsigned int), pixels);
-	//std::cout << "UpdatedRendering" << std::endl;
 	if (status != CL_SUCCESS)
 	{
 
-		//fprintf(stderr, "Failed to read the OpenCL pixel buffer: %d\n", status);
 		std::cerr << "Failed to read the OpenCL pixel buffer:" << std::to_string(status) << std::endl;
 		exit(-1);
 	}
 
-	/*------------------------------------------------------------------------*/
 
 	const double elapsedTime = WallClockTime() - startTime;
 	//const int samples = currentSample - startSampleCount;
@@ -285,9 +283,7 @@ void UpdateRendering()
 }
 void idleFunc(void)
 {
-	//std::cout << "IdleFUnch" << std::endl;
 	UpdateRendering();
-
 	glutPostRedisplay();
 }
 
@@ -297,21 +293,18 @@ void displayFunc(void)
 
 	glClear(GL_COLOR_BUFFER_BIT);
 	glRasterPos2i(0, 0);
-	//std::cout << "Raster" << std::endl;
-	glDrawPixels(640, 480, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
-	//std::cout << "Draw pixels" << std::endl;
+	glDrawPixels(image_width, image_height, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
 	glutSwapBuffers();
 }
 void FreeBuffers()
 {
-	//std::cout << "FreeBuffers" << std::endl;
 	free(seeds);
 	free(colors);
 	free(pixels);
 }
 void AllocateBuffers()
 {
-	//std::cout << "AllocateBuffers" << std::endl;
+
 	try
 	{
 		const size_t pixelCount = image_width * image_height;
@@ -366,30 +359,22 @@ void AllocateBuffers()
 	}
 }
 void ReInit(const int reallocBuffers)
-{
-	//std::cout << "ReInit" << std::endl;
+{	queue.finish();
 	// Check if I have to reallocate buffers
 	if (reallocBuffers)
-	{
+	{	
+		
 		FreeBuffers();
-		UpdateCamera();
 		AllocateBuffers();
-	}
-	else
-		UpdateCamera();
-	cl_int status = queue.enqueueWriteBuffer(cameraBuffer, CL_TRUE, 0, sizeof(Camera), &camera);
-	if (status != CL_SUCCESS)
-	{
-		//fprintf(stderr, "Failed to write the OpenCL camera buffer: %d\n", status);
-		std::cerr << "Failed to write the OpenCL camera buffer: " << std::to_string(status) << std::endl;
-		exit(-1);
-	}
 
+	}
+	
+	UpdateCamera();
+	
 	currentSample = 0;
 }
 void reshapeFunc(int newWidth, int newHeight)
 {
-	//std::cout << "ReshapeFunc" << std::endl;
 	image_width = newWidth;
 	image_height = newHeight;
 
@@ -418,7 +403,7 @@ void runGlut()
 	glutDisplayFunc(displayFunc);
 	glutIdleFunc(idleFunc);
 
-	//glMatrixMode(GL_PROJECTION);
+	glMatrixMode(GL_PROJECTION);
 	glViewport(0, 0, image_width, image_height);
 	glLoadIdentity();
 	glOrtho(0.f, image_width - 1.f, 0.f, image_height - 1.f, -1.f, 1.f);
@@ -433,27 +418,16 @@ void render()
 			threadStartBarrier->wait();
 
 			/* Set kernel arguments */
-
 			kernel.setArg(0, colorBuffer);
-			//std::cout << "arg 0 set" << std::endl;
 			kernel.setArg(1, seedBuffer);
-			//std::cout << "arg 1 set" << std::endl;
 			kernel.setArg(2, sphereBuffer);
-			//std::cout << "arg 2 set" << std::endl;
 			kernel.setArg(3, cameraBuffer);
-			//std::cout << "arg 3 set" << std::endl;
 			kernel.setArg(4, sphere_count);
-			//std::cout << "arg 4 set" << std::endl;
 			kernel.setArg(5, image_width);
-			//std::cout << "arg 5 set" << std::endl;
 			kernel.setArg(6, image_height);
-			//std::cout << "arg 6 set" << std::endl;
 			kernel.setArg(7, currentSample);
-			//std::cout << "arg 7 set" << std::endl;
 			kernel.setArg(8, pixelBuffer);
-			//std::cout << "arg 8 set" << std::endl;
-			//kernel.setArg(9, workOffset);
-			//kernel.setArg(10, workAmount);
+
 			ExecuteKernel();
 			cl_int status = queue.enqueueReadBuffer(pixelBuffer, CL_TRUE, 0, image_width * image_height * sizeof(unsigned int), pixels);
 
@@ -551,23 +525,8 @@ int setOpenCL(const std::string &sourceName)
 		{
 			device_id = 0;
 		}
-		/*
-		std::cout << std::endl;
-		std::cout << "Enter width of image." << std::endl;
-		std::cin >> image_width;
+	
 
-		//std::cout << std::endl;
-		std::cout << "Enter height of image." << std::endl;
-		std::cin >> image_height;
-*/
-		image_width = 640;
-		image_height = 480;
-		/*
-	std::cout << std::endl;
-	std::cout << "Enter number of samples for Path tracing." << std::endl;
-	std::cin >> samples;
-
-*/
 		std::cout << std::endl;
 		std::cout << "Platform:" << std::endl;
 		std::cout << platforms[platform_id].getInfo<CL_PLATFORM_NAME>() << std::endl
@@ -580,14 +539,9 @@ int setOpenCL(const std::string &sourceName)
 		// Create a context
 		cl::Context contexts(devices);
 		context = contexts;
-		//std::cout << "Context created" << std::endl;
+
 		// Create a command queue
 		queue = cl::CommandQueue(context, devices[device_id]);
-		//std::cout << "Command queue created:" << std::endl;
-		//std::cout << "Number of spheres:" <<std::to_string(sphere_count) << std::endl;
-		//std::cout << "Size of Sphere:" <<std::to_string(sizeof(Sphere)) << std::endl;
-
-		//renderThead.join();
 		sphereBuffer = cl::Buffer(context,
 #ifdef __APPLE__
 								  CL_MEM_READ_WRITE, // NOTE: not READ_ONLY because of Apple's OpenCL bug
@@ -595,9 +549,7 @@ int setOpenCL(const std::string &sourceName)
 								  CL_MEM_READ_ONLY,
 #endif
 								  sizeof(Sphere) * sphere_count);
-		//std::cout << "Sphere buffer created:" << std::endl;
 		queue.enqueueWriteBuffer(sphereBuffer, CL_TRUE, 0, sizeof(Sphere) * sphere_count, spheres);
-		//std::cout << "Enqueued write buffer spheres" << std::endl;
 
 		cameraBuffer = cl::Buffer(context,
 #ifdef __APPLE__
@@ -606,11 +558,8 @@ int setOpenCL(const std::string &sourceName)
 								  CL_MEM_READ_ONLY,
 #endif
 								  sizeof(Camera));
-		//std::cout << "Camera buffer created:" << std::endl;
 		queue.enqueueWriteBuffer(cameraBuffer, CL_TRUE, 0, sizeof(Camera), &camera);
-		//std::cout << "Enqueued write buffer camera" << std::endl;
-		//AllocateBuffers();
-		//std::cout << "AllocateBuffers() done" << std::endl;
+
 
 		// Read the program source
 		std::ifstream sourceFile(sourceName);
@@ -634,8 +583,6 @@ int setOpenCL(const std::string &sourceName)
 		kernel = ray_kernel;
 		global_work_size = image_width * image_height;
 		local_work_size = kernel.getWorkGroupInfo<CL_KERNEL_WORK_GROUP_SIZE>(devices[device_id]);
-		//lifegame.maxThreads = devices[device_id].getInfo<CL_DEVICE_MAX_WORK_GROUP_SIZE>();
-		//std::cout << lifegame.maxThreads << std::endl;
 	}
 	catch (cl::Error &err)
 	{
@@ -693,7 +640,7 @@ void ReInitScene()
 	cl_int status = queue.enqueueWriteBuffer(sphereBuffer, CL_TRUE, 0, sizeof(Sphere) * sphere_count, spheres);
 	if (status != CL_SUCCESS)
 	{
-		//fprintf(stderr, "Failed to write the OpenCL scene buffer: %d\n", status);
+
 		std::cerr << "Failed to write the OpenCL scene buffer: " << std::to_string(status) << std::endl;
 		exit(-1);
 	}
@@ -702,27 +649,56 @@ void ReInitScene()
 int main(int argc, char *argv[]) noexcept
 {
 	try
-	{
+	{	
+		
+		std::cout << std::endl;
+		std::cout << "Enter width of image." << std::endl;
+		std::cin >> image_width;
+
+		
+		std::cout << "Enter height of image." << std::endl;
+		std::cin >> image_height;
+		std::cout << std::endl;
+
+		std::cout << "List of scenes availables: " << std::endl;
+		std::string path = "scenes";
+		int counter = 0;
+		for (const auto & entry : fs::directory_iterator(path)){
+				counter+=1;
+		}
+		std::string scenes[counter];
+		counter = 0;
+    	for (const auto & entry : fs::directory_iterator(path)){
+				std::cout << std::to_string(counter) << ") "<<entry.path() << std::endl;
+				scenes[counter] = entry.path().string();
+				counter +=1;
+		}
+        int correct_scene = 0;
+		std::string scene;
+		int selected;
+		std::cout << std::endl;
+		while(correct_scene == 0){
+			std::cout << "Enter the number of the scene to load: " << std::endl;
+			std::cin >> selected;
+			
+			if(selected < counter){
+
+				scene = scenes[selected];
+				correct_scene = 1;
+			}
+			else{
+				std::cout << "Number of scene doesn't exist. Please try again with a number from the list." << std::endl;
+			}
+
+		}
+
+	
 		char const *title = "test";
 		InitGlut(argc, argv, (char *)title);
-		char const *scene = "scenes/cornell.scn";
 		ReadScene(scene);
-		//std::cout << "Scene read" << std::endl;
-		//UpdateCamera();
-		//std::cout << "Updated Camera" << std::endl;
 		setOpenCL("Ray tracer.cl");
-		/*
-		std::cout<< "Kernel work group size: " << local_work_size << std::endl;
-	if (global_work_size % local_work_size != 0)
-		global_work_size = (global_work_size / local_work_size + 1) * local_work_size;
-	*/
-
 		std::cout << "Glut init" << std::endl;
 		currentSample = 0;
-		/*for(size_t i = 0 ; i< 80; i++){
-UpdateRendering();
-	}
-	*/
 		runGlut();
 		return 0;
 	}
@@ -730,6 +706,4 @@ UpdateRendering();
 	{
 		std::cout << e.what() << std::endl;
 	}
-	//saveImage();
-	//std::cout << "Rendering done!\nSaved image to 'opencl_raytracer.ppm'" << std::endl;
 }
