@@ -1,5 +1,12 @@
-Para compilar los programas, se debe correr el Makefile.
-Para correr el benchmark de CPU, se debe correr el binario "CPUbenchmark".
-Para correr los benchmarks de GPU, se debe correr el binario "GPUbenchmarks".
+Real time path tracer with OpenCL.
 
-Se debe tener c++11 y openCL con los headers de c++.
+Controls:
+wasd: Move the camera.
+Arrow keys: Rotate the camera.
+r and f: Move the camera up and down as opposed to forward and backwards as w and s does.
++ and -: Change sphere selected.
+Numpad (2,4,6,8,9,3): Move selected sphere.
+7 and 1: Change sphere material.
+
+The selected sphere is printed on console when hitting + or -.
+The coordinates of the camera and spheres are printed in console if they change.

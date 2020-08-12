@@ -243,6 +243,8 @@ void specialFunc(int key, int x, int y) {
 			t.z = -t.y * sin(-ROTATE_STEP) + t.z * cos(-ROTATE_STEP);
 			vadd(t, t, camera.orig);
 			camera.target = t;
+			fprintf(stderr, "Camera origin (%f,%f,%f). Camera target: (%f,%f,%f).\n",
+					camera.orig.x, camera.orig.y, camera.orig.z,camera.target.x,camera.target.y,camera.target.z);
 			ReInit(0);
 			break;
 		}
@@ -253,6 +255,8 @@ void specialFunc(int key, int x, int y) {
 			t.z = -t.y * sin(ROTATE_STEP) + t.z * cos(ROTATE_STEP);
 			vadd(t, t, camera.orig);
 			camera.target = t;
+			fprintf(stderr, "Camera origin (%f,%f,%f). Camera target: (%f,%f,%f).\n",
+					camera.orig.x, camera.orig.y, camera.orig.z,camera.target.x,camera.target.y,camera.target.z);
 			ReInit(0);
 			break;
 		}
@@ -263,6 +267,8 @@ void specialFunc(int key, int x, int y) {
 			t.z = t.x * sin(-ROTATE_STEP) + t.z * cos(-ROTATE_STEP);
 			vadd(t, t, camera.orig);
 			camera.target = t;
+			fprintf(stderr, "Camera origin (%f,%f,%f). Camera target: (%f,%f,%f).\n",
+					camera.orig.x, camera.orig.y, camera.orig.z,camera.target.x,camera.target.y,camera.target.z);
 			ReInit(0);
 			break;
 		}
@@ -273,17 +279,11 @@ void specialFunc(int key, int x, int y) {
 			t.z = t.x * sin(ROTATE_STEP) + t.z * cos(ROTATE_STEP);
 			vadd(t, t, camera.orig);
 			camera.target = t;
+			fprintf(stderr, "Camera origin (%f,%f,%f). Camera target: (%f,%f,%f).\n",
+					camera.orig.x, camera.orig.y, camera.orig.z,camera.target.x,camera.target.y,camera.target.z);
 			ReInit(0);
 			break;
 		}
-		case GLUT_KEY_PAGE_UP:
-			camera.target.y += MOVE_STEP;
-			ReInit(0);
-			break;
-		case GLUT_KEY_PAGE_DOWN:
-			camera.target.y -= MOVE_STEP;
-			ReInit(0);
-			break;
 		default:
 			break;
 	}
@@ -338,6 +338,7 @@ void keyFunc(unsigned char key, int x, int y)
 	case 'p':
 	{
 		saveImage();
+		std::cout << "Imaged saved as Path trace image.ppm" <<std::endl;
 		break;
 	}
 			case 27: /* Escape key */
@@ -353,6 +354,8 @@ void keyFunc(unsigned char key, int x, int y)
 			vsmul(dir, -MOVE_STEP, dir);
 			vadd(camera.orig, camera.orig, dir);
 			vadd(camera.target, camera.target, dir);
+			fprintf(stderr, "Camera origin (%f,%f,%f). Camera target: (%f,%f,%f).\n",
+					camera.orig.x, camera.orig.y, camera.orig.z,camera.target.x,camera.target.y,camera.target.z);
 			ReInit(0);
 			break;
 		}
@@ -362,6 +365,8 @@ void keyFunc(unsigned char key, int x, int y)
 			vsmul(dir, MOVE_STEP, dir);
 			vadd(camera.orig, camera.orig, dir);
 			vadd(camera.target, camera.target, dir);
+			fprintf(stderr, "Camera origin (%f,%f,%f). Camera target: (%f,%f,%f).\n",
+					camera.orig.x, camera.orig.y, camera.orig.z,camera.target.x,camera.target.y,camera.target.z);
 			ReInit(0);
 			break;
 		}
@@ -370,6 +375,8 @@ void keyFunc(unsigned char key, int x, int y)
 			vsmul(dir, MOVE_STEP, dir);
 			vadd(camera.orig, camera.orig, dir);
 			vadd(camera.target, camera.target, dir);
+			fprintf(stderr, "Camera origin (%f,%f,%f). Camera target: (%f,%f,%f).\n",
+					camera.orig.x, camera.orig.y, camera.orig.z,camera.target.x,camera.target.y,camera.target.z);
 			ReInit(0);
 			break;
 		}
@@ -378,17 +385,23 @@ void keyFunc(unsigned char key, int x, int y)
 			vsmul(dir, -MOVE_STEP, dir);
 			vadd(camera.orig, camera.orig, dir);
 			vadd(camera.target, camera.target, dir);
+			fprintf(stderr, "Camera origin (%f,%f,%f). Camera target: (%f,%f,%f).\n",
+					camera.orig.x, camera.orig.y, camera.orig.z,camera.target.x,camera.target.y,camera.target.z);
 			ReInit(0);
 			break;
 		}
 		case 'r':
 			camera.orig.y += MOVE_STEP;
 			camera.target.y += MOVE_STEP;
+			fprintf(stderr, "Camera origin (%f,%f,%f). Camera target: (%f,%f,%f).\n",
+					camera.orig.x, camera.orig.y, camera.orig.z,camera.target.x,camera.target.y,camera.target.z);
 			ReInit(0);
 			break;
 		case 'f':
 			camera.orig.y -= MOVE_STEP;
 			camera.target.y -= MOVE_STEP;
+			fprintf(stderr, "Camera origin (%f,%f,%f). Camera target: (%f,%f,%f).\n",
+					camera.orig.x, camera.orig.y, camera.orig.z,camera.target.x,camera.target.y,camera.target.z);
 			ReInit(0);
 			break;
 		case '+':
@@ -405,10 +418,14 @@ void keyFunc(unsigned char key, int x, int y)
 			break;
 		case '4':
 			spheres[currentSphere].p.x -= 0.5f * MOVE_STEP;
+			fprintf(stderr, "Selected sphere %d (%f %f %f)\n", currentSphere,
+					spheres[currentSphere].p.x, spheres[currentSphere].p.y, spheres[currentSphere].p.z);
 			ReInitScene();
 			break;
 		case '6':
 			spheres[currentSphere].p.x += 0.5f * MOVE_STEP;
+			fprintf(stderr, "Selected sphere %d (%f %f %f)\n", currentSphere,
+					spheres[currentSphere].p.x, spheres[currentSphere].p.y, spheres[currentSphere].p.z);
 			ReInitScene();
 			break;
 		case '7':
@@ -418,18 +435,26 @@ void keyFunc(unsigned char key, int x, int y)
 			break;
 		case '8':
 			spheres[currentSphere].p.z -= 0.5f * MOVE_STEP;
+			fprintf(stderr, "Selected sphere %d (%f %f %f)\n", currentSphere,
+					spheres[currentSphere].p.x, spheres[currentSphere].p.y, spheres[currentSphere].p.z);
 			ReInitScene();
 			break;
 		case '2':
 			spheres[currentSphere].p.z += 0.5f * MOVE_STEP;
+			fprintf(stderr, "Selected sphere %d (%f %f %f)\n", currentSphere,
+					spheres[currentSphere].p.x, spheres[currentSphere].p.y, spheres[currentSphere].p.z);
 			ReInitScene();
 			break;
 		case '9':
 			spheres[currentSphere].p.y += 0.5f * MOVE_STEP;
+			fprintf(stderr, "Selected sphere %d (%f %f %f)\n", currentSphere,
+					spheres[currentSphere].p.x, spheres[currentSphere].p.y, spheres[currentSphere].p.z);
 			ReInitScene();
 			break;
 		case '3':
 			spheres[currentSphere].p.y -= 0.5f * MOVE_STEP;
+			fprintf(stderr, "Selected sphere %d (%f %f %f)\n", currentSphere,
+					spheres[currentSphere].p.x, spheres[currentSphere].p.y, spheres[currentSphere].p.z);
 			ReInitScene();
 			break;
 		case '1':
