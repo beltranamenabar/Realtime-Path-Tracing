@@ -127,7 +127,7 @@ switch (n)
 
 			std::cerr << "Failed to read material type for number"<<std::to_string(n) << std::endl;
 			exit(-1);
-			
+
 		}
 
 }
@@ -144,7 +144,7 @@ switch (e)
 
 			std::cerr << "Failed to read material type for number"<<std::to_string(e) << std::endl;
 			exit(-1);
-			
+
 		}
 
 }
@@ -795,13 +795,12 @@ int main(int argc, char *argv[])
 		std::cout << std::endl;
 
 		std::cout << "List of scenes availables: " << std::endl;
-		std::string path = "scenes";
+		std::string path = "res/scenes";
 		int counter = 0;
-		for (const auto &entry : fs::directory_iterator(path))
-		{
+		for (const auto &entry : fs::directory_iterator(path)) {
 			counter += 1;
 		}
-		std::string scenes[counter];
+		std::vector<std::string> scenes(counter);
 		counter = 0;
 		for (const auto &entry : fs::directory_iterator(path))
 		{
@@ -833,7 +832,7 @@ int main(int argc, char *argv[])
 		char const *title = "test";
 		InitGlut(argc, argv, (char *)title);
 		ReadScene(scene);
-		setOpenCL("Ray tracer.cl");
+		setOpenCL("res/kernels/Ray tracer.cl");
 		std::cout << "Glut init" << std::endl;
 		currentSample = 0;
 		runGlut();

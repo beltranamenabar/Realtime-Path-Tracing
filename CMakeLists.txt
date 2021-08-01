@@ -10,14 +10,16 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Add libraries
 
 # Add GLUT
+set(GLUT_ROOT extern/freeglut-3.2.1/)
 set(FREEGLUT_BUILD_SHARED_LIBS OFF CACHE BOOL "Build FreeGLUT shared library.")
 set(FREEGLUT_BUILD_DEMOS OFF CACHE BOOL "Build FreeGLUT demos.")
-add_subdirectory(extern/freeglut-3.2.1)
+add_subdirectory(${GLUT_ROOT})
 
 # Add OpenCL headers
 find_package(OpenCL REQUIRED)
 
 # Add Boost thread
+set(Boost_USE_STATIC_LIBS ON)
 find_package(Boost 1.76.0 REQUIRED COMPONENTS thread)
 
 if(NOT Boost_FOUND)
@@ -29,9 +31,7 @@ endif()
 add_executable(raytrace
     src/raytrace.cpp
     src/raytrace.hpp
-    src/geom.h
-    src/geomfunc.h
-    src/vec.h
+    res/kernels/vec.h
 )
 
 # Add libraries to the executable
@@ -43,6 +43,7 @@ target_link_libraries(raytrace
 
 target_include_directories(raytrace
     PUBLIC ${Boost_INCLUDE_DIR}
+    PUBLIC ${GLUT_ROOT}include
 )
 
 add_custom_command(

@@ -1,19 +1,22 @@
 #pragma once
 #include <string>
 
+#define NOMINMAX
+#define _USE_MATH_DEFINES
+#include <cmath>
 #include <cstdlib>
 #include <iostream>
 #include <fstream>
 #include <filesystem>
+#include <vector>
 namespace fs = std::filesystem;
 typedef unsigned char ubyte;
 
-#define CL_HPP_ENABLE_EXCEPTIONS
-#define CL_HPP_TARGET_OPENCL_VERSION 300
+#define __CL_ENABLE_EXCEPTIONS
 #ifdef __APPLE__
 #include <OpenCL/cl.hpp>
 #else
-#include <CL/opencl.hpp>
+#include <CL/cl.hpp>
 #endif
 
 #ifdef __APPLE__

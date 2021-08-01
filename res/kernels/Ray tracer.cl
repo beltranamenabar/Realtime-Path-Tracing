@@ -23,7 +23,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #define GPU_KERNEL
 
-#include "vec.h"
+#include "res/kernels/vec.h"
 
 typedef struct {
 	/* User defined values */
@@ -31,7 +31,7 @@ typedef struct {
 	/* Calculated values */
 	Vec dir, x, y;
 } Camera;
-#include "geomfunc.h"
+#include "res/kernels/geomfunc.h"
 
 void GenerateCameraRay(OCL_CONSTANT_BUFFER Camera *camera,
 		unsigned int *seed0, unsigned int *seed1,
@@ -63,7 +63,7 @@ __kernel void RadianceGPU(
 	const unsigned int sphereCount,
 	const unsigned int width, const unsigned int height,
 	const unsigned int currentSample,
-	__global int *pixels) 
+	__global int *pixels)
 	{
     const int gid = get_global_id(0);
 	const int gid2 = 2 * gid;
