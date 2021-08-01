@@ -8,7 +8,8 @@
 namespace fs = std::filesystem;
 typedef unsigned char ubyte;
 
-#define __CL_ENABLE_EXCEPTIONS
+#define CL_HPP_ENABLE_EXCEPTIONS
+#define CL_HPP_TARGET_OPENCL_VERSION 300
 #ifdef __APPLE__
 #include <OpenCL/cl.hpp>
 #else

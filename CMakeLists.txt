@@ -1,7 +1,10 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.12)
 
 # Set the project name
 project("OpenCL raytracing" VERSION 1.0)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 
 # Add libraries
@@ -12,13 +15,10 @@ set(FREEGLUT_BUILD_DEMOS OFF CACHE BOOL "Build FreeGLUT demos.")
 add_subdirectory(extern/freeglut-3.2.1)
 
 # Add OpenCL headers
-set(BUILD_DOCS OFF CACHE BOOL "Build Documentation")
-set(BUILD_EXAMPLES OFF CACHE BOOL "Build Examples")
-set(BUILD_TESTS OFF CACHE BOOL "Build Unit Tests")
-add_subdirectory(extern/OpenCL-CLHPP)
+find_package(OpenCL REQUIRED)
 
 # Add Boost thread
-find_package(Boost QUIET REQUIRED COMPONENTS thread)
+find_package(Boost 1.76.0 REQUIRED COMPONENTS thread)
 
 if(NOT Boost_FOUND)
     message(FATAL_ERROR "Boost Not found")
@@ -36,13 +36,12 @@ add_executable(raytrace
 
 # Add libraries to the executable
 target_link_libraries(raytrace
-    PUBLIC OpenCL
+    PUBLIC OpenCL::OpenCL
     PUBLIC freeglut_static
     PUBLIC Boost::thread
 )
 
 target_include_directories(raytrace
-    PUBLIC ${OPENCL_INCLUDE_DIR}
     PUBLIC ${Boost_INCLUDE_DIR}
 )
 

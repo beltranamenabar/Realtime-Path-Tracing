@@ -1,9 +1,10 @@
 
 # IDE
 .vscode/
+.vs/
 
 # Libraries
-extern/freeglut-3.2.1/
+extern/
 
 # build folders
 build/

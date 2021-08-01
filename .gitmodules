@@ -1,3 +1,0 @@
-[submodule "extern/OpenCL-CLHPP"]
-	path = extern/OpenCL-CLHPP
-	url = https://github.com/KhronosGroup/OpenCL-CLHPP.git
