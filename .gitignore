@@ -2,6 +2,13 @@
 # IDE
 .vscode/
 
+# Libraries
+extern/freeglut-3.2.1/
+
+# build folders
+build/
+out/
+
 ### C++ ###
 # Prerequisites
 *.d

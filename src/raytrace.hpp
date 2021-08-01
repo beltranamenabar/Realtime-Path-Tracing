@@ -12,7 +12,7 @@ typedef unsigned char ubyte;
 #ifdef __APPLE__
 #include <OpenCL/cl.hpp>
 #else
-#include <CL/cl.hpp>
+#include <CL/opencl.hpp>
 #endif
 
 #ifdef __APPLE__
@@ -75,7 +75,7 @@ typedef struct
 #elif defined(WIN32)
 #include <windows.h>
 #else
-Unsupported Platform !!!
+#error "Unsupported Platform."
 #endif
 #define MOVE_STEP 10.0f
 #define ROTATE_STEP (2.f * M_PI / 180.f)
