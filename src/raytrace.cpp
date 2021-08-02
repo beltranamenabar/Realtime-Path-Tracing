@@ -283,6 +283,7 @@ void saveImage() {
 
 void ReInit(const int reallocBuffers) {
 	queue.finish();
+
 	// Check if I have to reallocate buffers
 	if (reallocBuffers) {
 
@@ -533,7 +534,13 @@ void runGlut() {
 
 void render() {
 	try {
-		while(true) {
+
+		int kernel_count = 0;
+		double time_accum = 0;
+
+		printf("Showing average time taken every 60 kernels");
+
+		while (true) {
 			threadStartBarrier->wait();
 
 			/* Set kernel arguments */
@@ -557,6 +564,24 @@ void render() {
 			);
 
 			kernelExecutionTime.wait();
+
+			cl_ulong time_start = 0;
+			cl_ulong time_end = 0;
+
+			time_start = kernelExecutionTime.getProfilingInfo<CL_PROFILING_COMMAND_START>();
+			time_end = kernelExecutionTime.getProfilingInfo<CL_PROFILING_COMMAND_END>();
+
+			time_accum += time_end - time_start;
+			
+			
+			kernel_count++;
+
+			if (kernel_count > 60) {
+				printf("Kernel Execution time is: %0.5f milliseconds \n", (time_accum / 1000000.0) / 30);
+				kernel_count = 0;
+				time_accum = 0;
+			}
+
 			queue.finish();
 
 			threadEndBarrier->wait();
@@ -644,7 +669,11 @@ int setOpenCL(const std::string &sourceName) {
 		context = contexts;
 
 		// Create a command queue
-		queue = cl::CommandQueue(context, devices[device_id]);
+		queue = clCreateCommandQueue(context(), devices[device_id](), CL_QUEUE_PROFILING_ENABLE, NULL);
+
+		//queue = cl::CommandQueue(context, devices[device_id], CL_QUEUE_PROFILING_ENABLE);
+
+
 		sphereBuffer = cl::Buffer(context,
 #ifdef __APPLE__
 								  CL_MEM_READ_WRITE, // NOTE: not READ_ONLY because of Apple's OpenCL bug
