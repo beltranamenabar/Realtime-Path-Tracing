@@ -1,5 +1,6 @@
 
 #include "raytrace.hpp"
+
 static int image_width = 640;
 static int image_height = 480;
 
@@ -23,7 +24,7 @@ static unsigned int *seeds;
 Camera camera;
 static int currentSample = 0;
 static int currentSphere = 0;
-Sphere *spheres;
+std::vector<Sphere> spheres;
 unsigned int sphere_count = 0;
 unsigned int *pixels;
 
@@ -31,92 +32,58 @@ boost::barrier *threadStartBarrier = new boost::barrier(2);
 boost::barrier *threadEndBarrier = new boost::barrier(2);
 boost::thread renderThread;
 cl::Event kernelExecutionTime;
-double WallClockTime()
-{
+
+double WallClockTime() {
 #if defined(__linux__) || defined(__APPLE__)
 	struct timeval t;
 	gettimeofday(&t, NULL);
 
 	return t.tv_sec + t.tv_usec / 1000000.0;
 #elif defined(WIN32)
-	return GetTickCount() / 1000.0;
+	return GetTickCount64() / 1000.0;
 #else
-	Unsupported Platform !!!
+	#error "Unsupported Platform !!!"
 #endif
 }
 
-void ReadScene(std::string fileName)
-{
+void ReadScene(std::string fileName) {
+	std::string unused_strings;
 	std::cerr << "Reading scene: " << fileName << std::endl;
-	FILE *f = fopen(fileName.c_str(), "r");
-	if (!f)
-	{
+	std::ifstream file(fileName);
+
+	if (!file) {
 		std::cerr << "Failed to open file: " << fileName << std::endl;
 		exit(-1);
 	}
 
 	/* Read the camera position */
-	int c = fscanf(f, "camera %f %f %f  %f %f %f\n",
-				   &camera.orig.x, &camera.orig.y, &camera.orig.z,
-				   &camera.target.x, &camera.target.y, &camera.target.z);
-	if (c != 6)
-	{
-		std::cerr << "Failed to read 6 camera parameters: " << std::to_string(c) << std::endl;
-		exit(-1);
-	}
+	file >> unused_strings >> camera.orig.x >> camera.orig.y >> camera.orig.z
+		>> camera.target.x >> camera.target.y >> camera.target.z;
 
 	/* Read the sphere count */
-	c = fscanf(f, "size %u\n", &sphere_count);
-	if (c != 1)
-	{
-
-		std::cerr << "Failed to read sphere count: " << std::to_string(c) << std::endl;
-		exit(-1);
-	}
+	file >> unused_strings >> sphere_count;
 
 	/* Read all spheres */
-	spheres = (Sphere *)malloc(sizeof(Sphere) * sphere_count);
-	unsigned int i;
-	for (i = 0; i < sphere_count; i++)
-	{
-		Sphere *s = &spheres[i];
+	spheres.assign(sphere_count, Sphere());
+	for (size_t i = 0; i < sphere_count; i++) {
+		Sphere& s = spheres[i];
 		int mat;
-		int c = fscanf(f, "sphere %f  %f %f %f  %f %f %f  %f %f %f  %d\n",
-					   &s->rad,					  //Radius
-					   &s->p.x, &s->p.y, &s->p.z, //Position
-					   &s->e.x, &s->e.y, &s->e.z, //Emision
-					   &s->c.x, &s->c.y, &s->c.z, //Color
-					   &mat);					  //Material
-		switch (mat)
-		{
-		case 0:
-			s->refl = DIFF;
-			break;
-		case 1:
-			s->refl = SPEC;
-			break;
-		case 2:
-			s->refl = REFR;
-			break;
-		default:
 
-			std::cerr << "Failed to read material type for sphere #" << std::to_string(i) << ": " << std::to_string(mat) << std::endl;
-			exit(-1);
-			break;
-		}
-		if (c != 11)
-		{
+		file >> unused_strings;
+		file >> s.rad;						//Radius
+		file >> s.p.x >> s.p.y >> s.p.z;	//Position
+		file >> s.e.x >> s.e.y >> s.e.z;	//Emision
+		file >> s.c.x >> s.c.y >> s.c.z;	//Color
+		file >> mat;						//Material
 
-			std::cerr << "Failed to read sphere #" << std::to_string(i) << ": " << std::to_string(c) << std::endl;
-			exit(-1);
-		}
+		// Convert the number into the enum
+		s.refl = returnEnum(mat);
 	}
-
-	fclose(f);
+	file.close();
 }
+
 Refl returnEnum(int n){
-switch (n)
-		{
+	switch (n) {
 		case 0:
 			return DIFF;
 		case 1:
@@ -124,16 +91,14 @@ switch (n)
 		case 2:
 			return REFR;
 		default:
-
 			std::cerr << "Failed to read material type for number"<<std::to_string(n) << std::endl;
 			exit(-1);
-
-		}
+	}
 
 }
+
 std::string returnEnumString(Refl e){
-switch (e)
-		{
+	switch (e) {
 		case 0:
 			return "Diffuse";
 		case 1:
@@ -141,21 +106,18 @@ switch (e)
 		case 2:
 			return "Refractive";
 		default:
-
-			std::cerr << "Failed to read material type for number"<<std::to_string(e) << std::endl;
+			std::cerr << "Failed to read material type for number" << std::to_string(e) << std::endl;
 			exit(-1);
-
-		}
+	}
 
 }
 
-void UpdateCamera()
-{
+void UpdateCamera() {
 	vsub(camera.dir, camera.target, camera.orig);
 	vnorm(camera.dir);
 
 	const Vec up = {0.f, 1.f, 0.f};
-	const float fov = (M_PI / 180.f) * 45.f;
+	const float fov = static_cast<float>((M_PI / 180.f) * 45.f);
 	vxcross(camera.x, camera.dir, up);
 	vnorm(camera.x);
 	vsmul(camera.x, image_width * fov / image_height, camera.x);
@@ -163,15 +125,15 @@ void UpdateCamera()
 	vxcross(camera.y, camera.x, camera.dir);
 	vnorm(camera.y);
 	vsmul(camera.y, fov, camera.y);
+
 	cl_int status = queue.enqueueWriteBuffer(cameraBuffer, CL_TRUE, 0, sizeof(Camera), &camera);
-	if (status != CL_SUCCESS)
-	{
+	if (status != CL_SUCCESS) {
 		std::cerr << "Failed to write the OpenCL camera buffer: " << std::to_string(status) << std::endl;
 		exit(-1);
 	}
 }
-void waitExecute()
-{
+
+void waitExecute() {
 
 	// Start the rendering threads
 	threadStartBarrier->wait();
@@ -179,61 +141,61 @@ void waitExecute()
 	// Wait for job done signal (any reference to Bush is not itended...)
 	threadEndBarrier->wait();
 }
-void ExecuteKernel()
-{
+
+void ExecuteKernel() {
 	/* Enqueue a kernel run call */
 	if (global_work_size % local_work_size != 0)
 		global_work_size = (global_work_size / local_work_size + 1) * local_work_size;
 	kernelExecutionTime = cl::Event();
 	queue.enqueueNDRangeKernel(kernel, cl::NullRange, global_work_size, local_work_size, NULL, &kernelExecutionTime);
 }
-void UpdateRendering()
-{
+
+void UpdateRendering() {
 
 	double startTime = WallClockTime();
 	int startSampleCount = currentSample;
 
 	//--------------------------------------------------------------------------
 
-	if (currentSample < 20)
-	{
+	if (currentSample < 20) {
 		waitExecute();
 
 		currentSample++;
 	}
-	else
-	{
+	else {
 
 		/* After first 20 samples, continue to execute kernels for more and more time */
-		const float k = std::min(currentSample - 20u, 100u) / 100.f;
-		const float tresholdTime = 0.35f * k;
-		for (;;)
-		{
+		const double k = static_cast<double>(std::min(currentSample - 20u, 100u)) / 100.0;
+		const double tresholdTime = 0.35 * k;
+		while(true) {
 			waitExecute();
 
 			currentSample++;
 
-			const float elapsedTime = WallClockTime() - startTime;
+			const double elapsedTime = WallClockTime() - startTime;
 			if (elapsedTime > tresholdTime)
 				break;
 		}
 	}
 
 	/* Enqueue readBuffer */
-	cl_int status = queue.enqueueReadBuffer(pixelBuffer, CL_TRUE, 0, image_width * image_height * sizeof(unsigned int), pixels);
-	if (status != CL_SUCCESS)
-	{
+	cl_int status = queue.enqueueReadBuffer(
+		pixelBuffer,
+		CL_TRUE,
+		0,
+		static_cast<size_t>(image_width) * static_cast<size_t>(image_height) * sizeof(unsigned int),
+		pixels
+	);
+
+	if (status != CL_SUCCESS) {
 
 		std::cerr << "Failed to read the OpenCL pixel buffer:" << std::to_string(status) << std::endl;
 		exit(-1);
 	}
 
 	const double elapsedTime = WallClockTime() - startTime;
-	//const int samples = currentSample - startSampleCount;
-	//const double sampleSec = samples * image_height * image_width / elapsedTime;
-	//sprintf(captionBuffer, "Rendering time %.3f sec (pass %d)  Sample/sec  %.1fK\n",
-	//		elapsedTime, currentSample, sampleSec / 1000.f);
 }
+
 void specialFunc(int key, int x, int y) {
 	switch (key) {
 		case GLUT_KEY_UP: {
@@ -243,8 +205,9 @@ void specialFunc(int key, int x, int y) {
 			t.z = -t.y * sin(-ROTATE_STEP) + t.z * cos(-ROTATE_STEP);
 			vadd(t, t, camera.orig);
 			camera.target = t;
-			fprintf(stderr, "Camera origin (%f,%f,%f). Camera target: (%f,%f,%f).\n",
-					camera.orig.x, camera.orig.y, camera.orig.z,camera.target.x,camera.target.y,camera.target.z);
+			std::cout << "Camera origin (" << camera.orig.x << "," << camera.orig.y << "," << camera.orig.z <<
+				"). Camera target: (" << camera.target.x << "," << camera.target.y << "," << camera.target.z << ")."
+				<< std::endl;
 			ReInit(0);
 			break;
 		}
@@ -255,8 +218,9 @@ void specialFunc(int key, int x, int y) {
 			t.z = -t.y * sin(ROTATE_STEP) + t.z * cos(ROTATE_STEP);
 			vadd(t, t, camera.orig);
 			camera.target = t;
-			fprintf(stderr, "Camera origin (%f,%f,%f). Camera target: (%f,%f,%f).\n",
-					camera.orig.x, camera.orig.y, camera.orig.z,camera.target.x,camera.target.y,camera.target.z);
+			std::cout << "Camera origin (" << camera.orig.x << "," << camera.orig.y << "," << camera.orig.z <<
+				"). Camera target: (" << camera.target.x << "," << camera.target.y << "," << camera.target.z << ")."
+				<< std::endl;
 			ReInit(0);
 			break;
 		}
@@ -267,8 +231,9 @@ void specialFunc(int key, int x, int y) {
 			t.z = t.x * sin(-ROTATE_STEP) + t.z * cos(-ROTATE_STEP);
 			vadd(t, t, camera.orig);
 			camera.target = t;
-			fprintf(stderr, "Camera origin (%f,%f,%f). Camera target: (%f,%f,%f).\n",
-					camera.orig.x, camera.orig.y, camera.orig.z,camera.target.x,camera.target.y,camera.target.z);
+			std::cout << "Camera origin (" << camera.orig.x << "," << camera.orig.y << "," << camera.orig.z <<
+				"). Camera target: (" << camera.target.x << "," << camera.target.y << "," << camera.target.z << ")."
+				<< std::endl;
 			ReInit(0);
 			break;
 		}
@@ -279,8 +244,9 @@ void specialFunc(int key, int x, int y) {
 			t.z = t.x * sin(ROTATE_STEP) + t.z * cos(ROTATE_STEP);
 			vadd(t, t, camera.orig);
 			camera.target = t;
-			fprintf(stderr, "Camera origin (%f,%f,%f). Camera target: (%f,%f,%f).\n",
-					camera.orig.x, camera.orig.y, camera.orig.z,camera.target.x,camera.target.y,camera.target.z);
+			std::cout << "Camera origin (" << camera.orig.x << "," << camera.orig.y << "," << camera.orig.z <<
+				"). Camera target: (" << camera.target.x << "," << camera.target.y << "," << camera.target.z << ")."
+				<< std::endl;
 			ReInit(0);
 			break;
 		}
@@ -288,40 +254,37 @@ void specialFunc(int key, int x, int y) {
 			break;
 	}
 }
-void idleFunc(void)
-{
+
+void idleFunc(void) {
 	UpdateRendering();
 	glutPostRedisplay();
 }
-void saveImage()
-{
 
-	FILE *f = fopen("Path trace image.ppm", "w"); // Write image to PPM file.
-	if (!f)
-	{
-		fprintf(stderr, "Failed to open image file: image.ppm\n");
+void saveImage() {
+
+	std::ofstream file("Path trace image.ppm");
+
+	if (!file) {
+		std::cerr << "Failed to open image file: Path trace image.ppm" << std::endl;
+		return;
 	}
-	else
-	{
-		fprintf(f, "P3\n%d %d\n%d\n", image_width, image_height, 255);
 
-		int x, y;
-		for (y = image_height - 1; y >= 0; --y)
-		{
-			unsigned char *p = (unsigned char *)(&pixels[y * image_width]);
-			for (x = 0; x < image_width; ++x, p += 4)
-				fprintf(f, "%d %d %d ", p[0], p[1], p[2]);
-		}
+	file << "P3" << std::endl;
+	file << image_width << " " << image_height << std::endl;
+	file << 255 << std::endl;
 
-		fclose(f);
+	for (int y = image_height - 1; y >= 0; --y) {
+		unsigned char *p = reinterpret_cast<unsigned char *>(&pixels[y * image_width]);
+		for (int x = 0; x < image_width; ++x, p += 4)
+			file << p[0] << " " << p[1] << " " << p[2] << " ";
 	}
+	file.close();
 }
-void ReInit(const int reallocBuffers)
-{
+
+void ReInit(const int reallocBuffers) {
 	queue.finish();
 	// Check if I have to reallocate buffers
-	if (reallocBuffers)
-	{
+	if (reallocBuffers) {
 
 		FreeBuffers();
 		AllocateBuffers();
@@ -331,17 +294,14 @@ void ReInit(const int reallocBuffers)
 
 	currentSample = 0;
 }
-void keyFunc(unsigned char key, int x, int y)
-{
-	switch (key)
-	{
-	case 'p':
-	{
-		saveImage();
-		std::cout << "Imaged saved as Path trace image.ppm" <<std::endl;
-		break;
-	}
-			case 27: /* Escape key */
+
+void keyFunc(unsigned char key, int x, int y) {
+	switch (key) {
+		case 'p':
+			saveImage();
+			std::cout << "Imaged saved as Path trace image.ppm" <<std::endl;
+			break;
+		case 27: /* Escape key */
 			fprintf(stderr, "Done.\n");
 			exit(0);
 			break;
@@ -430,7 +390,8 @@ void keyFunc(unsigned char key, int x, int y)
 			break;
 		case '7':
 			spheres[currentSphere].refl = returnEnum((spheres[currentSphere].refl +1) % 3);
-			std::cout << "Selected sphere " <<std::to_string(currentSphere)<<". Type of reflection: "<< returnEnumString(returnEnum((spheres[currentSphere].refl +1) % 3))<<"."<<std::endl;
+			std::cout << "Selected sphere " <<std::to_string(currentSphere)<<". Type of reflection: "
+				<< returnEnumString(returnEnum((spheres[currentSphere].refl +1) % 3))<<"."<<std::endl;
 			ReInitScene();
 			break;
 		case '8':
@@ -459,7 +420,8 @@ void keyFunc(unsigned char key, int x, int y)
 			break;
 		case '1':
 			spheres[currentSphere].refl = returnEnum( (spheres[currentSphere].refl + (2)) % 3);
-			std::cout << "Selected sphere " <<std::to_string(currentSphere)<<". Type of reflection: "<< returnEnumString(returnEnum((spheres[currentSphere].refl +1) % 3))<<"."<<std::endl;
+			std::cout << "Selected sphere " <<std::to_string(currentSphere)<<". Type of reflection: "
+				<< returnEnumString(returnEnum((spheres[currentSphere].refl +1) % 3))<<"."<<std::endl;
 			ReInitScene();
 			break;
 		default:
@@ -467,8 +429,7 @@ void keyFunc(unsigned char key, int x, int y)
 	}
 }
 
-void displayFunc(void)
-{
+void displayFunc(void) {
 	UpdateRendering();
 
 	glClear(GL_COLOR_BUFFER_BIT);
@@ -478,30 +439,27 @@ void displayFunc(void)
 }
 void FreeBuffers()
 {
-	free(seeds);
-	free(colors);
-	free(pixels);
+	delete[] seeds;
+	delete[] colors;
+	delete[] pixels;
 }
-void AllocateBuffers()
-{
 
-	try
-	{
-		const size_t pixelCount = image_width * image_height;
-		size_t i;
-		colors = (Vec *)malloc(sizeof(Vec) * pixelCount);
+void AllocateBuffers() {
 
-		seeds = (unsigned int *)malloc(sizeof(unsigned int) * pixelCount * 2);
-		for (i = 0; i < pixelCount * 2; i++)
-		{
-			seeds[i] = rand();
+	try {
+		const size_t pixelCount = static_cast<size_t>(image_width) * static_cast<size_t>(image_height);
+		colors = new Vec[pixelCount];
+
+		seeds = new unsigned int[pixelCount * 2];
+		for (unsigned int i = 0; i < pixelCount * 2; i++) {
+			seeds[i] = static_cast<unsigned int>(rand());
 			if (seeds[i] < 2)
 				seeds[i] = 2;
 		}
 
-		pixels = (unsigned int *)malloc(sizeof(unsigned int) * pixelCount);
+		pixels = new unsigned int[pixelCount];
 		// Test colors
-		for (i = 0; i < pixelCount; ++i)
+		for (unsigned int i = 0; i < pixelCount; ++i)
 			pixels[i] = i;
 
 		size_t sizeBytes = sizeof(Vec) * image_width * image_height;
@@ -514,11 +472,9 @@ void AllocateBuffers()
 		seedBuffer = cl::Buffer(context, CL_MEM_READ_WRITE, sizeBytes);
 		queue.enqueueWriteBuffer(seedBuffer, CL_TRUE, 0, sizeBytes, seeds);
 	}
-	catch (cl::Error &err)
-	{
+	catch (cl::Error &err) {
 		std::cout << "Error: " << err.what() << "(" << err.err() << ")" << std::endl;
-		for (cl::Device dev : devices)
-		{
+		for (cl::Device dev : devices) {
 			// Check the build status
 			cl_build_status status = program.getBuildInfo<CL_PROGRAM_BUILD_STATUS>(dev);
 			if (status != CL_BUILD_ERROR)
@@ -533,13 +489,12 @@ void AllocateBuffers()
 
 		return;
 	}
-	catch (std::exception &e)
-	{
-		std::cout << "Error: " << std::endl;
+	catch (std::exception &e) {
+		std::cerr << "Error: " << e.what() << std::endl;
 	}
 }
-void reshapeFunc(int newWidth, int newHeight)
-{
+
+void reshapeFunc(int newWidth, int newHeight) {
 	image_width = newWidth;
 	image_height = newHeight;
 
@@ -551,8 +506,8 @@ void reshapeFunc(int newWidth, int newHeight)
 
 	glutPostRedisplay();
 }
-void InitGlut(int argc, char *argv[], char *windowTittle)
-{
+
+void InitGlut(int argc, char *argv[], char *windowTittle) {
 	glutInitWindowSize(image_width, image_height);
 	glutInitWindowPosition(0, 0);
 	glutInitDisplayMode(GLUT_RGBA | GLUT_DOUBLE);
@@ -560,8 +515,9 @@ void InitGlut(int argc, char *argv[], char *windowTittle)
 
 	glutCreateWindow(windowTittle);
 }
-void runGlut()
-{	glutSetKeyRepeat(GLUT_KEY_REPEAT_ON);
+
+void runGlut() {
+	glutSetKeyRepeat(GLUT_KEY_REPEAT_ON);
 	glutReshapeFunc(reshapeFunc);
 	glutKeyboardFunc(keyFunc);
 	glutSpecialFunc(specialFunc);
@@ -574,12 +530,10 @@ void runGlut()
 	glOrtho(0.f, image_width - 1.f, 0.f, image_height - 1.f, -1.f, 1.f);
 	glutMainLoop();
 }
-void render()
-{
-	try
-	{
-		for (;;)
-		{
+
+void render() {
+	try {
+		while(true) {
 			threadStartBarrier->wait();
 
 			/* Set kernel arguments */
@@ -594,7 +548,13 @@ void render()
 			kernel.setArg(8, pixelBuffer);
 
 			ExecuteKernel();
-			cl_int status = queue.enqueueReadBuffer(pixelBuffer, CL_TRUE, 0, image_width * image_height * sizeof(unsigned int), pixels);
+			cl_int status = queue.enqueueReadBuffer(
+				pixelBuffer,
+				CL_TRUE,
+				0,
+				static_cast<size_t>(image_width) * static_cast<size_t>(image_height) * sizeof(unsigned int),
+				pixels
+			);
 
 			kernelExecutionTime.wait();
 			queue.finish();
@@ -602,20 +562,16 @@ void render()
 			threadEndBarrier->wait();
 		}
 	}
-	catch (boost::thread_interrupted)
-	{
+	catch (boost::thread_interrupted) {
 		std::cerr << " Rendering thread halted" << std::endl;
 	}
-	catch (cl::Error err)
-	{
+	catch (cl::Error err) {
 		std::cerr << " ERROR: " << err.what() << "(" << err.err() << ")" << std::endl;
 	}
 }
-int setOpenCL(const std::string &sourceName)
-{
+int setOpenCL(const std::string &sourceName) {
 
-	try
-	{
+	try {
 
 		// Query for platforms
 		std::vector<cl::Platform> platforms;
@@ -625,68 +581,52 @@ int setOpenCL(const std::string &sourceName)
 
 		// Select the platform.
 		int platform_id;
-		if (platforms.size() > 1)
-		{
+		if (platforms.size() > 1) {
 
 			std::cout << "Platforms:" << std::endl;
-			for (unsigned int i = 0; i < platforms.size(); i++)
-			{
+			for (unsigned int i = 0; i < platforms.size(); i++) {
 				std::cout << std::to_string(i) << ") " << platforms[i].getInfo<CL_PLATFORM_NAME>() << std::endl;
 			}
 			std::cout << std::endl;
 
 			int correct_platform = 0;
 			std::cout << "Enter the number of the platform to use." << std::endl;
-			while (correct_platform == 0)
-			{
+			while (correct_platform == 0) {
 
 				std::cin >> platform_id;
 				if (platform_id < platforms.size())
-				{
 					correct_platform = 1;
-				}
 				else
-				{
 					std::cout << "Number of platform doesn't exist. Please try again with a number from the list." << std::endl;
-				}
 			}
 			std::cout << std::endl;
 		}
-		else
-		{
+		else {
 			platform_id = 0;
 		}
 
 		//Select the device.
 		int device_id;
 		platforms[platform_id].getDevices(CL_DEVICE_TYPE_ALL, &devices);
-		if (devices.size() > 1)
-		{
+		if (devices.size() > 1) {
 			std::cout << "Devices:" << std::endl;
-			for (unsigned int i = 0; i < devices.size(); i++)
-			{
+			for (unsigned int i = 0; i < devices.size(); i++) {
 				std::cout << std::to_string(i) << ") " << devices[i].getInfo<CL_DEVICE_NAME>() << std::endl;
 			}
 			std::cout << std::endl;
 
 			int correct_device = 0;
 			std::cout << "Enter the number of the device to use." << std::endl;
-			while (correct_device == 0)
-			{
+			while (correct_device == 0) {
 
 				std::cin >> device_id;
 				if (device_id < devices.size())
-				{
 					correct_device = 1;
-				}
 				else
-				{
 					std::cout << "Number of device doesn't exist. Please try again with a number from the list." << std::endl;
-				}
 			}
 		}
-		else
-		{
+		else {
 			device_id = 0;
 		}
 
@@ -712,7 +652,7 @@ int setOpenCL(const std::string &sourceName)
 								  CL_MEM_READ_ONLY,
 #endif
 								  sizeof(Sphere) * sphere_count);
-		queue.enqueueWriteBuffer(sphereBuffer, CL_TRUE, 0, sizeof(Sphere) * sphere_count, spheres);
+		queue.enqueueWriteBuffer(sphereBuffer, CL_TRUE, 0, sizeof(Sphere) * sphere_count, spheres.data());
 
 		cameraBuffer = cl::Buffer(context,
 #ifdef __APPLE__
@@ -743,7 +683,7 @@ int setOpenCL(const std::string &sourceName)
 
 		cl::Kernel ray_kernel(program, "RadianceGPU");
 		kernel = ray_kernel;
-		global_work_size = image_width * image_height;
+		global_work_size = static_cast<size_t>(image_width) * static_cast<size_t>(image_height);
 		local_work_size = kernel.getWorkGroupInfo<CL_KERNEL_WORK_GROUP_SIZE>(devices[device_id]);
 	}
 	catch (cl::Error &err)
@@ -768,23 +708,19 @@ int setOpenCL(const std::string &sourceName)
 
 	return (EXIT_SUCCESS);
 }
-void ReInitScene()
-{
+void ReInitScene() {
 	currentSample = 0;
 
 	// Redownload the scene
-	cl_int status = queue.enqueueWriteBuffer(sphereBuffer, CL_TRUE, 0, sizeof(Sphere) * sphere_count, spheres);
-	if (status != CL_SUCCESS)
-	{
+	cl_int status = queue.enqueueWriteBuffer(sphereBuffer, CL_TRUE, 0, sizeof(Sphere) * sphere_count, spheres.data());
 
+	if (status != CL_SUCCESS) {
 		std::cerr << "Failed to write the OpenCL scene buffer: " << std::to_string(status) << std::endl;
 		exit(-1);
 	}
 }
-int main(int argc, char *argv[])
-{
-	try
-	{
+int main(int argc, char *argv[]) {
+	try {
 
 		std::cout << std::endl;
 		std::cout << "Enter width of image." << std::endl;
@@ -802,8 +738,7 @@ int main(int argc, char *argv[])
 		}
 		std::vector<std::string> scenes(counter);
 		counter = 0;
-		for (const auto &entry : fs::directory_iterator(path))
-		{
+		for (const auto &entry : fs::directory_iterator(path)) {
 			std::cout << std::to_string(counter) << ") " << entry.path() << std::endl;
 			scenes[counter] = entry.path().string();
 			counter += 1;
@@ -812,19 +747,16 @@ int main(int argc, char *argv[])
 		std::string scene;
 		int selected;
 		std::cout << std::endl;
-		while (correct_scene == 0)
-		{
+		while (correct_scene == 0) {
 			std::cout << "Enter the number of the scene to load: " << std::endl;
 			std::cin >> selected;
 
-			if (selected < counter)
-			{
+			if (selected < counter) {
 
 				scene = scenes[selected];
 				correct_scene = 1;
 			}
-			else
-			{
+			else {
 				std::cout << "Number of scene doesn't exist. Please try again with a number from the list." << std::endl;
 			}
 		}
@@ -838,8 +770,8 @@ int main(int argc, char *argv[])
 		runGlut();
 		return 0;
 	}
-	catch (cl::Error &e)
-	{
+
+	catch (cl::Error &e) {
 		std::cout << e.what() << std::endl;
 	}
 }

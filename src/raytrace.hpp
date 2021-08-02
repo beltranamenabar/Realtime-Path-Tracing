@@ -1,8 +1,8 @@
 #pragma once
-#include <string>
 
 #define NOMINMAX
 #define _USE_MATH_DEFINES
+#include <string>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -10,7 +10,6 @@
 #include <filesystem>
 #include <vector>
 namespace fs = std::filesystem;
-typedef unsigned char ubyte;
 
 #define __CL_ENABLE_EXCEPTIONS
 #ifdef __APPLE__
@@ -29,16 +28,14 @@ typedef unsigned char ubyte;
 
 #include "vec.h"
 
-typedef struct
-{
+typedef struct {
 	/* User defined values */
 	Vec orig, target;
 	/* Calculated values */
 	Vec dir, x, y;
 } Camera;
 
-typedef struct
-{
+typedef struct {
 	Vec o, d;
 } Ray;
 
@@ -53,15 +50,13 @@ typedef struct
 		vassign((a).d, (b).d); \
 	}
 
-enum Refl
-{
+enum Refl {
 	DIFF,
 	SPEC,
 	REFR
 }; /* material types, used in radiance() */
 
-typedef struct
-{
+typedef struct {
 
 	float rad; /* radius */
 
@@ -81,8 +76,8 @@ typedef struct
 #else
 #error "Unsupported Platform."
 #endif
-#define MOVE_STEP 10.0f
-#define ROTATE_STEP (2.f * M_PI / 180.f)
+static constexpr float MOVE_STEP = 10.0f;
+static constexpr float ROTATE_STEP = 2.f * static_cast<float>(M_PI) / 180.f;
 
 
 void ReadScene(std::string fileName);
@@ -93,8 +88,6 @@ void UpdateRendering();
 void idleFunc(void);
 void saveImage();
 void ReInit(const int reallocBuffers);
-#define MOVE_STEP 10.0f
-#define ROTATE_STEP (2.f * M_PI / 180.f)
 void keyFunc(unsigned char key, int x, int y);
 void displayFunc(void);
 void FreeBuffers();
@@ -107,3 +100,4 @@ int setOpenCL(const std::string &sourceName);
 void ReInitScene();
 int main(int argc, char *argv[]);
 void specialFunc(int key, int x, int y);
+Refl returnEnum(int n);
