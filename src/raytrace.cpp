@@ -274,9 +274,9 @@ void saveImage() {
 	file << 255 << std::endl;
 
 	for (int y = image_height - 1; y >= 0; --y) {
-		unsigned char *p = reinterpret_cast<unsigned char *>(&pixels[y * image_width]);
+		unsigned char* p = (unsigned char*)(&pixels[y * image_width]);
 		for (int x = 0; x < image_width; ++x, p += 4)
-			file << p[0] << " " << p[1] << " " << p[2] << " ";
+			file << (int)p[0] << " " << (int)p[1] << " " << (int)p[2] << " ";
 	}
 	file.close();
 }
@@ -572,8 +572,8 @@ void render() {
 			time_end = kernelExecutionTime.getProfilingInfo<CL_PROFILING_COMMAND_END>();
 
 			time_accum += time_end - time_start;
-			
-			
+
+
 			kernel_count++;
 
 			if (kernel_count > 60) {
