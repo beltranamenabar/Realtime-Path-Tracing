@@ -9,7 +9,7 @@
 static float get_random(unsigned int *seed0, unsigned int *seed1) {
 
 	/* hash the seeds using bitwise AND operations and bitshifts */
-	*seed0 = 36969 * ((*seed0) & 65535) + ((*seed0) >> 16);  
+	*seed0 = 36969 * ((*seed0) & 65535) + ((*seed0) >> 16);
 	*seed1 = 18000 * ((*seed1) & 65535) + ((*seed1) >> 16);
 
 	unsigned int ires = ((*seed0) << 16) + (*seed1);

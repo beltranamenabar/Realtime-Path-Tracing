@@ -43,3 +43,6 @@ out/
 *.exe
 *.out
 *.app
+
+# Python
+graphs/env/
